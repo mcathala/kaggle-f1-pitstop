@@ -1,0 +1,338 @@
+"""Experiment 054 (cycle 16) — strengthened entity-embedding MLP (v2).
+
+Exp 053's vanilla embedding-MLP was the most rank-diverse base we have (ρ 0.91 vs
+everything) but too weak (OOF 0.941) to earn blend weight. Its gap to RealMLP
+(0.954) is largely the numeric-embedding premium: RealMLP bins/embeds numerics
+(PBLD), while v1 fed raw standardised values. This v2 tries to push the diverse
+base toward "strong enough to help" while preserving its diversity, via:
+  1. Quantile-binned NUMERIC embeddings (each numeric -> 1 of K bins -> embedding),
+     concatenated alongside the raw standardised numerics — the cheap version of
+     RealMLP's numeric embeddings.
+  2. A multi-seed ensemble (average OOF/test over N_SEEDS) for variance reduction.
+  3. Slightly heavier regularisation to curb the epoch-7 overfit seen in v1.
+
+Goal: lift OOF from 0.941 toward ~0.948-0.950 while keeping ρ < ~0.95 vs RealMLP.
+At that strength + diversity the blend probe may finally show a lift (our first
+in 5 cycles). Same CV as every prior experiment.
+
+Outputs:
+  data/oof_embmlp_v2.parquet
+  data/submission_embmlp_v2.csv
+"""
+
+import os
+import random
+import time
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+from scipy.stats import spearmanr
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import StratifiedKFold
+from sklearn.preprocessing import StandardScaler
+
+warnings.filterwarnings("ignore")
+
+DATA = Path(__file__).resolve().parent.parent.parent / "data"
+TRAIN_CSV = DATA / "train.csv"
+TEST_CSV = DATA / "test.csv"
+EXTERNAL_CSV = DATA / "f1_strategy_dataset.csv"
+OOF_OUT = DATA / "oof_embmlp_v2.parquet"
+SUB_OUT = DATA / "submission_embmlp_v2.csv"
+REALMLP_OOF = DATA / "oof_realmlp_multiseed.parquet"
+CB_OOF = DATA / "oof_cb_tuned_exp14.parquet"
+XGB_OOF = DATA / "oof_xgb_highbins.parquet"
+
+TARGET = "PitNextLap"
+ID_COL = "id"
+N_SPLITS = 5
+SEED = 42
+
+EMB_CATS = ["Driver", "Race", "Compound", "Year", "Stint", "Race_Year", "Driver_Compound"]
+
+MAX_EPOCHS = 40
+PATIENCE = 6
+BATCH = 1024
+LR = 1e-3
+WD = 5e-5          # heavier than v1 (1e-5) to curb the epoch-7 overfit
+DROPOUT = 0.20     # heavier than v1 (0.10)
+NUM_BINS = 32      # quantile bins per numeric for the numeric-embedding path
+NUM_EMB_DIM = 8    # embedding dim per binned numeric
+N_SEEDS = 3        # multi-seed ensemble for variance reduction
+SEEDS = [42, 7, 99]
+
+device = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
+print(f"torch {torch.__version__}  device {device}")
+
+
+def seed_everything(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.backends.mps.is_available():
+        torch.mps.manual_seed(seed)
+
+
+def safe_div(a, b, eps=1e-6):
+    return a / (b + eps)
+
+
+def add_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Continuous domain features + two cross-categoricals. Mirrors the tree
+    trainers' numeric recipe so the NN sees the same engineered signal."""
+    eps = 1e-6
+    out = df.copy()
+    rp = out["RaceProgress"].clip(lower=eps)
+    out["EstimatedTotalLaps"] = (out["LapNumber"] / rp).clip(1, 120).astype("float32")
+    out["LapsRemaining"] = (out["EstimatedTotalLaps"] - out["LapNumber"]).clip(lower=0).astype("float32")
+    out["RemainingRaceProgress"] = (1.0 - out["RaceProgress"]).astype("float32")
+    out["TyreAgeRatio"] = safe_div(out["TyreLife"], out["LapNumber"].clip(lower=1), eps).astype("float32")
+    out["TyreLife_x_RaceProgress"] = (out["TyreLife"] * out["RaceProgress"]).astype("float32")
+    out["TyreAgeVsRace"] = safe_div(out["TyreLife"], out["EstimatedTotalLaps"].clip(lower=1), eps).astype("float32")
+    out["TyreLife_to_LapsRemaining"] = safe_div(out["TyreLife"], out["LapsRemaining"] + 1, eps).astype("float32")
+    out["LapMinusTyreLife"] = (out["LapNumber"] - out["TyreLife"]).astype("float32")
+    out["StintPressure"] = (out["Stint"] * out["TyreLife"]).astype("float32")
+    out["PositionPressure"] = (out["Position"] * out["RaceProgress"]).astype("float32")
+    out["DegPerRaceLap"] = safe_div(out["Cumulative_Degradation"], out["LapNumber"].clip(lower=1), eps).astype("float32")
+    out["DegPerTyreLap"] = safe_div(out["Cumulative_Degradation"], out["TyreLife"].clip(lower=1), eps).astype("float32")
+    out["Abs_Cumulative_Degradation"] = out["Cumulative_Degradation"].abs().astype("float32")
+    out["DeltaAbs"] = out["LapTime_Delta"].abs().astype("float32")
+    out["DeltaPerTyreLap"] = safe_div(out["LapTime_Delta"], out["TyreLife"].clip(lower=1), eps).astype("float32")
+    out["Abs_Position_Change"] = out["Position_Change"].abs().astype("float32")
+    # cross-cats for embedding
+    out["Race_Year"] = out["Race"].astype(str) + "_" + out["Year"].astype(str)
+    out["Driver_Compound"] = out["Driver"].astype(str) + "_" + out["Compound"].astype(str)
+    return out
+
+
+NUM_COLS = [
+    "LapNumber", "Stint", "TyreLife", "Position", "LapTime (s)", "LapTime_Delta",
+    "Cumulative_Degradation", "RaceProgress", "Position_Change", "PitStop",
+    "EstimatedTotalLaps", "LapsRemaining", "RemainingRaceProgress", "TyreAgeRatio",
+    "TyreLife_x_RaceProgress", "TyreAgeVsRace", "TyreLife_to_LapsRemaining",
+    "LapMinusTyreLife", "StintPressure", "PositionPressure", "DegPerRaceLap",
+    "DegPerTyreLap", "Abs_Cumulative_Degradation", "DeltaAbs", "DeltaPerTyreLap",
+    "Abs_Position_Change",
+]
+
+
+class EmbMLP(nn.Module):
+    """Categorical embeddings + quantile-binned numeric embeddings + raw numerics."""
+
+    def __init__(self, cat_cards, emb_dims, n_num, hidden=(384, 192), p=DROPOUT):
+        super().__init__()
+        self.embs = nn.ModuleList([nn.Embedding(c, d) for c, d in zip(cat_cards, emb_dims)])
+        # one embedding table per numeric (NUM_BINS+1 slots: bins 0..NUM_BINS-1, +1 for NaN/oob)
+        self.num_embs = nn.ModuleList([nn.Embedding(NUM_BINS + 1, NUM_EMB_DIM) for _ in range(n_num)])
+        self.emb_drop = nn.Dropout(p)
+        self.bn_num = nn.BatchNorm1d(n_num)
+        in_dim = sum(emb_dims) + n_num * NUM_EMB_DIM + n_num
+        layers = []
+        for h in hidden:
+            layers += [nn.Linear(in_dim, h), nn.BatchNorm1d(h), nn.ReLU(), nn.Dropout(p)]
+            in_dim = h
+        layers += [nn.Linear(in_dim, 1)]
+        self.mlp = nn.Sequential(*layers)
+
+    def forward(self, x_cat, x_numbin, x_num):
+        e = [emb(x_cat[:, i]) for i, emb in enumerate(self.embs)]
+        ne = [emb(x_numbin[:, i]) for i, emb in enumerate(self.num_embs)]
+        x = torch.cat(e + ne + [self.bn_num(x_num)], dim=1)
+        x = self.emb_drop(x)
+        return self.mlp(x).squeeze(1)
+
+
+def emb_dim(card: int) -> int:
+    return int(min(50, round(1.6 * card ** 0.56)))
+
+
+def build_cat_codes(frames, col):
+    """Global code map over the union; 0 reserved for unknown/NaN. Returns
+    (per-frame coded arrays, cardinality incl. unknown slot)."""
+    union = pd.concat([f[col].astype("string").fillna("__NA__") for f in frames], axis=0)
+    cats = pd.Index(union.unique())
+    code = {c: i + 1 for i, c in enumerate(cats)}  # 0 = unknown
+    coded = [f[col].astype("string").fillna("__NA__").map(code).fillna(0).astype("int64").to_numpy()
+             for f in frames]
+    return coded, len(cats) + 1
+
+
+def train_one_fold(seed, Xc_tr, Xb_tr, Xn_tr, y_tr, Xc_va, Xb_va, Xn_va, y_va,
+                   Xc_te, Xb_te, Xn_te, cards, dims):
+    seed_everything(seed)
+    model = EmbMLP(cards, dims, Xn_tr.shape[1]).to(device)
+    opt = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=WD)
+    lossf = nn.BCEWithLogitsLoss()
+
+    tc = torch.tensor(Xc_tr, dtype=torch.long)
+    tb = torch.tensor(Xb_tr, dtype=torch.long)
+    tn = torch.tensor(Xn_tr, dtype=torch.float32)
+    ty = torch.tensor(y_tr, dtype=torch.float32)
+    vc = torch.tensor(Xc_va, dtype=torch.long, device=device)
+    vb = torch.tensor(Xb_va, dtype=torch.long, device=device)
+    vn = torch.tensor(Xn_va, dtype=torch.float32, device=device)
+    ec = torch.tensor(Xc_te, dtype=torch.long, device=device)
+    eb = torch.tensor(Xb_te, dtype=torch.long, device=device)
+    en = torch.tensor(Xn_te, dtype=torch.float32, device=device)
+
+    n = len(ty)
+    best_auc, best_state, bad = -1.0, None, 0
+    for epoch in range(MAX_EPOCHS):
+        model.train()
+        perm = torch.randperm(n)
+        for i in range(0, n, BATCH):
+            idx = perm[i:i + BATCH]
+            opt.zero_grad()
+            out = model(tc[idx].to(device), tb[idx].to(device), tn[idx].to(device))
+            loss = lossf(out, ty[idx].to(device))
+            loss.backward()
+            opt.step()
+        model.eval()
+        with torch.no_grad():
+            va_logit = model(vc, vb, vn).float().cpu().numpy()
+        auc = roc_auc_score(y_va, va_logit)
+        if os.environ.get("EMBMLP_VERBOSE"):
+            print(f"    seed {seed} epoch {epoch:2d}  val_auc={auc:.5f}", flush=True)
+        if auc > best_auc + 1e-6:
+            best_auc, bad = auc, 0
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+        else:
+            bad += 1
+            if bad >= PATIENCE:
+                break
+
+    model.load_state_dict(best_state)
+    model.eval()
+    with torch.no_grad():
+        va_pred = torch.sigmoid(model(vc, vb, vn)).float().cpu().numpy()
+        te_pred = torch.sigmoid(model(ec, eb, en)).float().cpu().numpy()
+    return va_pred, te_pred, best_auc, epoch + 1
+
+
+def main():
+    print("Loading data...")
+    train = pd.read_csv(TRAIN_CSV)
+    test = pd.read_csv(TEST_CSV)
+    ext = pd.read_csv(EXTERNAL_CSV).dropna(subset=["Compound"]).drop(columns=["Normalized_TyreLife"], errors="ignore")
+    ext[ID_COL] = -1
+    print(f"  train {train.shape}  test {test.shape}  ext {ext.shape}")
+
+    train = add_features(train); test = add_features(test); ext = add_features(ext)
+
+    # categorical codes (global over union)
+    cat_arrays, cards, dims = {}, [], []
+    coded_sets = {"train": {}, "test": {}, "ext": {}}
+    for col in EMB_CATS:
+        (ctr, cte, cex), card = build_cat_codes([train, test, ext], col)
+        coded_sets["train"][col] = ctr
+        coded_sets["test"][col] = cte
+        coded_sets["ext"][col] = cex
+        cards.append(card); dims.append(emb_dim(card))
+    print("embeddings: " + ", ".join(f"{c}({cd}->{d})" for c, cd, d in zip(EMB_CATS, cards, dims)))
+
+    Xc_train = np.stack([coded_sets["train"][c] for c in EMB_CATS], axis=1)
+    Xc_test = np.stack([coded_sets["test"][c] for c in EMB_CATS], axis=1)
+    Xc_ext = np.stack([coded_sets["ext"][c] for c in EMB_CATS], axis=1)
+
+    for f in (train, test, ext):
+        for c in NUM_COLS:
+            f[c] = pd.to_numeric(f[c], errors="coerce").astype("float32")
+    Xn_train = train[NUM_COLS].to_numpy(dtype=np.float32)
+    Xn_test = test[NUM_COLS].to_numpy(dtype=np.float32)
+    Xn_ext = ext[NUM_COLS].to_numpy(dtype=np.float32)
+
+    y = train[TARGET].astype(int).to_numpy()
+    y_ext = ext[TARGET].astype(int).to_numpy()
+
+    strat = train["Year"].astype(str) + "_" + train[TARGET].astype(int).astype(str)
+    kf = StratifiedKFold(n_splits=N_SPLITS, shuffle=True, random_state=SEED)
+    oof = np.zeros(len(train)); test_preds = np.zeros(len(test)); fold_aucs = []
+
+    def bin_fit(Xfit):
+        """Per-numeric quantile edges from the fit data (NaN-ignored)."""
+        edges = []
+        for j in range(Xfit.shape[1]):
+            col = Xfit[:, j]
+            col = col[~np.isnan(col)]
+            qs = np.quantile(col, np.linspace(0, 1, NUM_BINS + 1)[1:-1]) if len(col) else np.zeros(NUM_BINS - 1)
+            edges.append(np.unique(qs))
+        return edges
+
+    def bin_apply(X, edges):
+        """Digitise to [0, NUM_BINS-1]; NaN -> NUM_BINS (the extra embedding slot)."""
+        out = np.empty(X.shape, dtype=np.int64)
+        for j in range(X.shape[1]):
+            col = X[:, j]
+            idx = np.digitize(col, edges[j])
+            idx = np.clip(idx, 0, NUM_BINS - 1)
+            idx[np.isnan(col)] = NUM_BINS
+            out[:, j] = idx
+        return out
+
+    no_ext = os.environ.get("NO_EXT") == "1"
+    if no_ext:
+        print(">>> NO_EXT ablation: training on competition data only (external excluded)")
+    for fold, (tr_idx, va_idx) in enumerate(kf.split(Xn_train, strat), start=1):
+        t0 = time.time()
+        Xn_tr_raw = Xn_train[tr_idx] if no_ext else np.vstack([Xn_train[tr_idx], Xn_ext])
+        scaler = StandardScaler()
+        scaler.fit(np.nan_to_num(Xn_tr_raw, nan=0.0))
+        def scale(a):
+            return np.nan_to_num(scaler.transform(np.nan_to_num(a, nan=0.0)), nan=0.0).astype("float32")
+        Xn_tr = scale(Xn_tr_raw)
+        Xn_va = scale(Xn_train[va_idx]); Xn_te = scale(Xn_test)
+
+        edges = bin_fit(Xn_tr_raw)
+        Xb_tr = bin_apply(Xn_tr_raw, edges)
+        Xb_va = bin_apply(Xn_train[va_idx], edges)
+        Xb_te = bin_apply(Xn_test, edges)
+
+        if no_ext:
+            Xc_tr = Xc_train[tr_idx]
+            y_tr = y[tr_idx].astype("float32")
+        else:
+            Xc_tr = np.vstack([Xc_train[tr_idx], Xc_ext])
+            y_tr = np.concatenate([y[tr_idx], y_ext]).astype("float32")
+        Xc_va = Xc_train[va_idx]; Xc_te = Xc_test
+
+        # multi-seed ensemble — average predictions over seeds
+        va_acc = np.zeros(len(va_idx)); te_acc = np.zeros(len(test)); seed_aucs = []
+        for sd in SEEDS:
+            va_p, te_p, bv, ep = train_one_fold(
+                sd, Xc_tr, Xb_tr, Xn_tr, y_tr, Xc_va, Xb_va, Xn_va, y[va_idx],
+                Xc_te, Xb_te, Xn_te, cards, dims)
+            va_acc += va_p / len(SEEDS); te_acc += te_p / len(SEEDS); seed_aucs.append(bv)
+        oof[va_idx] = va_acc
+        test_preds += te_acc / N_SPLITS
+        a = roc_auc_score(y[va_idx], va_acc); fold_aucs.append(a)
+        print(f"fold {fold}/{N_SPLITS}  AUC={a:.5f}  seed_vals={[round(s,5) for s in seed_aucs]}  "
+              f"train_rows={len(y_tr):,}  ({time.time()-t0:.1f}s)", flush=True)
+
+    oof_auc = roc_auc_score(y, oof)
+    print(f"\nper-fold mean={np.mean(fold_aucs):.5f} std={np.std(fold_aucs):.5f}")
+    print(f"OOF AUC: {oof_auc:.5f}")
+    print(f"  (vs RealMLP-ms 0.95383, Δ={oof_auc-0.95383:+.5f}; vs floor 0.949, Δ={oof_auc-0.949:+.5f})")
+
+    print("\nRank-correlation vs existing bases:")
+    for name, path in [("RealMLP-ms", REALMLP_OOF), ("CB-tuned14", CB_OOF), ("XGB-highbins", XGB_OOF)]:
+        try:
+            other = pd.read_parquet(path)
+            m = pd.DataFrame({"id": train[ID_COL], "oof": oof}).merge(
+                other[["id", "oof"]].rename(columns={"oof": "o"}), on="id")
+            rho, _ = spearmanr(m["oof"], m["o"])
+            print(f"  vs {name:14s}: {rho:.5f}")
+        except Exception as e:
+            print(f"  vs {name}: skipped ({e})")
+
+    oof_out = DATA / "oof_embmlp_v2_noext.parquet" if no_ext else OOF_OUT
+    pd.DataFrame({"id": train[ID_COL], "Year": train["Year"], "target": y, "oof": oof}).to_parquet(oof_out, index=False)
+    pd.DataFrame({"id": test[ID_COL], TARGET: test_preds}).sort_values("id").reset_index(drop=True).to_csv(SUB_OUT, index=False)
+    print(f"\nwrote {OOF_OUT.name} and {SUB_OUT.name}")
+
+
+if __name__ == "__main__":
+    main()
