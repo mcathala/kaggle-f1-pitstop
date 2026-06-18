@@ -1,0 +1,51 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local tooling config (not part of the project)
+.claude/
+CLAUDE.md
+
+# Data — commit only the inputs needed to reproduce the best model; ignore generated artifacts.
+data/*
+!data/train.csv
+!data/test.csv
+!data/sample_submission.csv
+!data/f1_strategy_dataset.csv
+!data/submission_blend_pseudo_r2.csv
+!data/oof_realmlp_pseudo62.parquet
+!data/submission_realmlp_pseudo62.csv
+!data/oof_xgb_pseudo2.parquet
+!data/submission_xgb_pseudo2.csv
+!data/submission_blend_best.csv
+!data/leaderboard.html
+.ipynb_checkpoints/
+.DS_Store
+
+
+# Recon-only external notebooks (kept local; never committed)
+notebooks/*.html
+
+# CatBoost training artifacts
+catboost_info/
+
+# AutoGluon training artifacts
+ag_models/
+AutogluonModels/
+
+# Long-running training logs
+/tmp/tune_cat.log
+/tmp/train_cycle006.log
+/tmp/cat_train.log
+.env
+
+# Misc dev artifacts
+rtdl_checkpoints/
+ag_news*/
