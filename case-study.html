@@ -1,0 +1,2816 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>F1 Pit-Stop Prediction — Kaggle Competition S6E5</title>
+  <meta name="description"
+    content="Kaggle Competition S6E5: from a 0.94211 baseline to 0.95427 — top 10%* once you discount one copied notebook. A visual, honest account of label noise, one real signal, a disciplined climb, and a structural ceiling. No paid cloud.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="F1 Pit-Stop Prediction — Kaggle Competition S6E5">
+  <meta property="og:description"
+    content="Kaggle Competition S6E5: +0.0122 AUC over baseline (0.94211 → 0.95427), 88 logged experiments, a label-noise ceiling proven — and a top-10%* finish on free compute.">
+  <meta property="og:url" content="https://github.com/mcathala/kaggle-f1-pitstop">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="F1 Pit-Stop Prediction — Kaggle Competition S6E5">
+  <meta name="twitter:description"
+    content="+0.0122 AUC over baseline, 88 logged experiments, a noise-bounded ceiling proven — top 10%* on free compute.">
+  <link rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314161a'/%3E%3Cpath d='M5 24 L13 17 L19 19 L27 8' fill='none' stroke='%23e10600' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --bg: #14161a;
+      --panel: #191c22;
+      --line: #262a31;
+      --fg: #e8e6e1;
+      --muted: #8b8f98;
+      --red: #e10600;
+      --green: #5fb878;
+      --red-dim: rgba(225, 6, 0, .16);
+      --grid: rgba(255, 255, 255, .05);
+      --orange: #ff7a3c;
+      --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+      --sys: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    html {
+      scroll-behavior: smooth
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--sys);
+      line-height: 1.55;
+      font-size: 16px;
+      overflow-x: hidden
+    }
+
+    /* telemetry grid backdrop */
+    #telemetry {
+      position: fixed;
+      inset: -40px;
+      z-index: 0;
+      pointer-events: none;
+      opacity: .04;
+      background-image:
+        repeating-linear-gradient(60deg, #fff 0 1px, transparent 1px 46px),
+        repeating-linear-gradient(-60deg, #fff 0 1px, transparent 1px 46px);
+      will-change: transform
+    }
+
+    .layer {
+      position: relative;
+      z-index: 1
+    }
+
+    .mono {
+      font-family: var(--mono)
+    }
+
+    .red {
+      color: var(--red)
+    }
+
+    .green {
+      color: var(--green)
+    }
+
+    .muted {
+      color: var(--muted)
+    }
+
+    /* section scaffold */
+    section {
+      min-height: 92vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      border-top: 1px solid var(--line);
+      padding: 6vh 22px
+    }
+
+    section:first-of-type {
+      border-top: none
+    }
+
+    .col {
+      max-width: 1080px;
+      margin: 0 auto;
+      width: 100%
+    }
+
+    .kicker {
+      font-family: var(--mono);
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: .18em;
+      color: var(--muted);
+      margin: 0 0 14px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 9px
+    }
+
+    .kicker .b {
+      color: var(--red);
+      font-size: 7px;
+      transform: translateY(-2px)
+    }
+
+    h1,
+    h2 {
+      font-family: var(--sys);
+      font-weight: 700;
+      letter-spacing: -.02em;
+      line-height: 1.12;
+      color: var(--fg);
+      margin: 0
+    }
+
+    h2 {
+      font-size: clamp(1.5rem, 3.6vw, 2.35rem);
+      margin-bottom: .55em
+    }
+
+    .cap {
+      font-family: var(--mono);
+      color: var(--muted);
+      font-size: 13px;
+      margin: 0 0 1.4em;
+      letter-spacing: .01em
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: auto
+    }
+
+    /* reveal base */
+    .reveal {
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity .7s ease, transform .7s ease
+    }
+
+    .in .reveal {
+      opacity: 1;
+      transform: none
+    }
+
+    .in .reveal.d1 {
+      transition-delay: .08s
+    }
+
+    .in .reveal.d2 {
+      transition-delay: .16s
+    }
+
+    .in .reveal.d3 {
+      transition-delay: .24s
+    }
+
+    /* inert asterisk in the hero headline (decorative — no link) */
+    .star {
+      color: var(--red);
+      text-decoration: none;
+      font-size: .62em;
+      vertical-align: .55em;
+      font-weight: 700
+    }
+
+    /* PART divider — the three-act spine (Overview / Data / Models) */
+    .part {
+      border-top: 1px solid var(--line);
+      padding: 15vh 22px 9vh;
+      min-height: 0;
+      display: block;
+      text-align: center;
+      position: relative;
+      background: linear-gradient(180deg, rgba(225, 6, 0, .06), transparent 45%)
+    }
+
+    .part::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 74px;
+      height: 3px;
+      background: var(--red)
+    }
+
+    .part .pcol {
+      max-width: 900px;
+      margin: 0 auto
+    }
+
+    .part .pnum {
+      font-family: var(--mono);
+      font-size: 13px;
+      letter-spacing: .42em;
+      color: var(--red);
+      text-transform: uppercase;
+      font-weight: 700
+    }
+
+    .part .pname {
+      font-family: var(--sys);
+      font-weight: 800;
+      letter-spacing: -.02em;
+      font-size: clamp(1.95rem, 4.6vw, 3rem);
+      margin: .3em 0 .25em;
+      line-height: 1.08
+    }
+
+    .part .pdek {
+      font-family: var(--mono);
+      font-size: 13.5px;
+      color: var(--muted);
+      margin: 0 auto;
+      max-width: 56ch;
+      line-height: 1.6
+    }
+
+    /* the section right after a part divider should not double its top border */
+    .part+section {
+      border-top: none
+    }
+
+    /* sub-part number in each section kicker — ties the section to its parent part */
+    .kicker .sp {
+      color: var(--red);
+      font-weight: 700;
+      letter-spacing: .14em;
+      margin-right: 2px
+    }
+
+    /* the single lead paragraph per section — clean readable body, no chrome */
+    .lead {
+      max-width: 80ch;
+      margin: 4px 0 1.7em;
+      font-size: 15.5px;
+      line-height: 1.65;
+      color: #cbced4
+    }
+
+    .lead b {
+      color: var(--fg);
+      font-weight: 600
+    }
+
+    .lead i {
+      color: var(--fg);
+      font-style: italic
+    }
+
+    /* hero lead paragraph — centered, a touch larger, explains the project */
+    #hero .lead {
+      font-family: var(--mono);
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--muted);
+      text-align: center;
+      max-width: 84ch;
+      margin: 0 auto 1.6em
+    }
+
+    /* ---- plain-language accessibility layer (senior-first page, on-demand for newcomers) ---- */
+    /* jargon terms: dotted cue, tooltip on hover/tap via the shared #tip element */
+    .gl {
+      border-bottom: 1px dotted var(--muted);
+      cursor: help
+    }
+
+    .gl:hover {
+      border-bottom-color: var(--red);
+      color: #fff
+    }
+
+    .tip.wide {
+      white-space: normal;
+      max-width: 300px;
+      line-height: 1.5;
+      padding: 8px 11px
+    }
+
+    /* per-section "in plain terms" expander — collapsed by default so depth stays the default */
+    .plainbox {
+      margin: 2px 0 1.2em
+    }
+
+    .plainbox>summary {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      cursor: pointer;
+      list-style: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      user-select: none
+    }
+
+    .plainbox>summary::-webkit-details-marker {
+      display: none
+    }
+
+    .plainbox>summary::before {
+      content: "▸";
+      color: var(--red);
+      font-size: 9px
+    }
+
+    .plainbox[open]>summary::before {
+      content: "▾"
+    }
+
+    .plainbox>summary:hover {
+      color: var(--fg)
+    }
+
+    .plainbox .pt {
+      font-family: var(--sys);
+      font-size: 14.5px;
+      color: var(--fg);
+      margin: 10px 0 0;
+      line-height: 1.55;
+      max-width: 66ch
+    }
+
+    /* hero "new to this?" pointer to the plain-language doc */
+    .newhere {
+      margin-top: 18px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--muted)
+    }
+
+    .newhere a {
+      color: var(--fg);
+      border-bottom: 1px solid var(--red);
+      text-decoration: none
+    }
+
+    .newhere a:hover {
+      color: var(--red)
+    }
+
+    /* ---------- HERO ---------- */
+    #hero {
+      min-height: 100vh;
+      text-align: center;
+      position: relative;
+      background: linear-gradient(180deg, rgba(225, 6, 0, .06), transparent 45%), #0e1013
+    }
+
+    /* Part I carries the same divider signature as Parts II-IV: red top bar, red wash, mono part-number */
+    #hero::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 74px;
+      height: 3px;
+      background: var(--red)
+    }
+
+    #hero .pnum {
+      font-family: var(--mono);
+      font-size: 13px;
+      letter-spacing: .42em;
+      color: var(--red);
+      text-transform: uppercase;
+      font-weight: 700;
+      margin: 0 0 .4em
+    }
+
+    #hero .col {
+      max-width: 1000px
+    }
+
+    #hero h1 {
+      font-size: clamp(1.95rem, 4.6vw, 3rem);
+      font-weight: 800;
+      margin: .2em auto .4em;
+      max-width: 900px
+    }
+
+    #hero h1 .h1sub {
+      display: block;
+      font-size: .65em;
+      margin-top: .1em
+    }
+
+    #hero .sub {
+      font-family: var(--mono);
+      color: var(--muted);
+      font-size: clamp(12px, 1.5vw, 14px);
+      margin: 0 0 1.6em
+    }
+
+    .cursor {
+      color: var(--red);
+      animation: blink 1.05s steps(1) infinite
+    }
+
+    @keyframes blink {
+      50% {
+        opacity: 0
+      }
+    }
+
+    .heroart {
+      position: relative;
+      margin: 0 auto;
+      max-width: 880px
+    }
+
+    .chips {
+      display: flex;
+      gap: 14px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 26px
+    }
+
+    .chip {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 13px 18px;
+      min-width: 150px;
+      opacity: 0;
+      transform: translateY(10px) scale(.97);
+      transition: opacity .5s ease, transform .5s ease
+    }
+
+    #hero.in .chip.s0 {
+      transition-delay: 0s
+    }
+
+    #hero.in .chip.s1 {
+      transition-delay: .18s
+    }
+
+    #hero.in .chip.s2 {
+      transition-delay: .36s
+    }
+
+    #hero.in .chip.s3 {
+      transition-delay: .54s
+    }
+
+    .chip.lit {
+      opacity: 1;
+      transform: none
+    }
+
+    .chip .v {
+      font-family: var(--mono);
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -.01em
+    }
+
+    .chip .k {
+      font-family: var(--mono);
+      color: var(--muted);
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      margin-top: 3px
+    }
+
+    .scrolldown {
+      margin-top: 34px;
+      color: var(--red);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      animation: bob 1.8s ease-in-out infinite
+    }
+
+    .scrolldown .chev {
+      display: block;
+      font-size: 18px;
+      margin-top: 4px
+    }
+
+    @keyframes bob {
+
+      0%,
+      100% {
+        transform: translateY(0);
+        opacity: .6
+      }
+
+      50% {
+        transform: translateY(7px);
+        opacity: 1
+      }
+    }
+
+    /* sticky mini strip */
+    #ministrip {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      pointer-events: none;
+      height: 44px;
+      background: rgba(14, 16, 19, .92);
+      border-bottom: 1px solid var(--line);
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      backdrop-filter: blur(6px);
+      transform: translateY(-100%);
+      transition: transform .35s ease
+    }
+
+    #ministrip.show {
+      transform: none
+    }
+
+    #ministrip .mwrap {
+      max-width: 1080px;
+      margin: 0 auto;
+      width: 100%;
+      padding: 0 22px;
+      display: flex;
+      align-items: center;
+      gap: 14px
+    }
+
+    #ministrip .lab {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      white-space: nowrap
+    }
+
+    #ministrip svg {
+      height: 32px;
+      flex: 1
+    }
+
+    /* shared floating tooltip (glossary + chart hovers) */
+    .tip {
+      position: fixed;
+      z-index: 60;
+      background: #000;
+      border: 1px solid var(--red);
+      color: var(--fg);
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 5px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .12s ease;
+      white-space: nowrap
+    }
+
+    /* ---------- DATA panels ---------- */
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px
+    }
+
+    .grid2 .panel {
+      margin: 0;
+      min-width: 0
+    }
+
+    .ptitle {
+      font-family: var(--mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--fg);
+      margin: 0 0 14px
+    }
+
+    .scalewrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px
+    }
+
+    .scalechip {
+      flex: 1;
+      min-width: 120px;
+      text-align: center
+    }
+
+    .scalechip .v {
+      font-family: var(--mono);
+      font-size: 1.5rem;
+      font-weight: 700
+    }
+
+    .scalechip .k {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: var(--muted);
+      margin-top: 2px
+    }
+
+    .marquee {
+      overflow: hidden;
+      white-space: nowrap;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 12px 0;
+      margin-top: 6px
+    }
+
+    .marquee .run {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 1.05rem;
+      letter-spacing: .12em;
+      animation: scrollx 26s linear infinite
+    }
+
+    .marquee .syn {
+      color: var(--muted)
+    }
+
+    @keyframes scrollx {
+      from {
+        transform: translateX(0)
+      }
+
+      to {
+        transform: translateX(-50%)
+      }
+    }
+
+    /* anatomy-of-a-row — grouped column chips */
+    .anatomy {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px
+    }
+
+    .agroup {
+      flex: 1;
+      min-width: 150px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px
+    }
+
+    .agroup.label {
+      border-color: var(--red);
+      flex: 0 1 auto
+    }
+
+    .ahead {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--muted)
+    }
+
+    .acol {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--fg);
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 3px 9px;
+      width: fit-content
+    }
+
+    .acol.target {
+      color: #fff;
+      background: var(--red);
+      border-color: var(--red);
+      font-weight: 700
+    }
+
+    /* ---------- JOURNEY ---------- */
+    #journey .stage {
+      position: relative
+    }
+
+    .vignette {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      pointer-events: none;
+      opacity: 0;
+      box-shadow: inset 0 0 160px 30px rgba(225, 6, 0, .55);
+      transition: opacity .25s ease
+    }
+
+    .vignette.on {
+      opacity: 1
+    }
+
+    .jcards {
+      margin-top: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px
+    }
+
+    .jcard {
+      display: flex;
+      gap: 14px;
+      align-items: baseline;
+      border: 1px solid var(--line);
+      border-left-width: 3px;
+      border-radius: 10px;
+      padding: 11px 15px;
+      background: var(--panel);
+      opacity: .32;
+      transition: opacity .4s ease, border-color .4s ease, transform .4s ease;
+      transform: translateX(-6px)
+    }
+
+    .jcard.active {
+      opacity: 1;
+      transform: none
+    }
+
+    .jcard.win {
+      border-left-color: var(--red)
+    }
+
+    .jcard.pivot {
+      border-left-color: var(--green)
+    }
+
+    .jcard.hollow {
+      border-left-color: var(--muted);
+      border-left-style: dashed
+    }
+
+    .jcard .idx {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      min-width: 18px
+    }
+
+    .jcard .lab {
+      font-family: var(--sys);
+      font-weight: 600;
+      font-size: .95rem;
+      min-width: 0
+    }
+
+    .jcard .lb {
+      font-family: var(--mono);
+      font-size: .9rem;
+      font-weight: 700;
+      margin-left: auto;
+      white-space: nowrap
+    }
+
+    .jcard.win .lb {
+      color: var(--red)
+    }
+
+    .jcard.pivot .lb {
+      color: var(--green)
+    }
+
+    .jcard.hollow .lb {
+      color: var(--muted)
+    }
+
+    .jcard .why {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      flex-basis: 100%;
+      margin-top: 3px
+    }
+
+    .jcard.pivot {
+      box-shadow: 0 0 0 1px rgba(95, 184, 120, .4)
+    }
+
+    /* ---------- climb detail panel (click-to-reveal) ---------- */
+    .jdetail {
+      margin-top: 14px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      border: 1px solid var(--line);
+      border-left-width: 3px;
+      border-radius: 10px;
+      padding: 14px 18px;
+      background: var(--panel);
+      min-height: 62px
+    }
+
+    .jdetail.win {
+      border-left-color: var(--red)
+    }
+
+    .jdetail.pivot {
+      border-left-color: var(--green);
+      box-shadow: 0 0 0 1px rgba(95, 184, 120, .4)
+    }
+
+    .jdetail.hollow {
+      border-left-color: var(--muted);
+      border-left-style: dashed
+    }
+
+    .jdetail .d-idx {
+      font-family: var(--mono);
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--muted);
+      min-width: 26px;
+      line-height: 1.1
+    }
+
+    .jdetail .d-body {
+      flex: 1;
+      min-width: 0
+    }
+
+    .jdetail .d-top {
+      display: flex;
+      gap: 12px;
+      align-items: baseline;
+      justify-content: space-between
+    }
+
+    .jdetail .d-lab {
+      font-family: var(--sys);
+      font-weight: 600;
+      font-size: 1.02rem
+    }
+
+    .jdetail .d-lb {
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: .92rem;
+      white-space: nowrap
+    }
+
+    .jdetail.win .d-lb {
+      color: var(--red)
+    }
+
+    .jdetail.pivot .d-lb {
+      color: var(--green)
+    }
+
+    .jdetail.hollow .d-lb {
+      color: var(--muted)
+    }
+
+    .jdetail .d-why {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+      line-height: 1.5
+    }
+
+    /* ---------- DECISION recap cards (static) ---------- */
+    .dgrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px
+    }
+
+    .dcard {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--red);
+      border-radius: 14px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px
+    }
+
+    .dcard .dl {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--muted)
+    }
+
+    .dcard .dtitle {
+      font-family: var(--sys);
+      font-weight: 700;
+      font-size: 1.06rem;
+      line-height: 1.22;
+      margin: 0;
+      color: var(--fg)
+    }
+
+    .dcard .dnum {
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: .92rem;
+      color: var(--red);
+      letter-spacing: .01em
+    }
+
+    .dcard .dexp {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+      margin: 0
+    }
+
+    /* ---------- PATTERN cards (the three levers) ---------- */
+    .pgrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 18px
+    }
+
+    .pcard {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-top: 3px solid var(--red);
+      border-radius: 14px;
+      padding: 18px 20px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px
+    }
+
+    .pcard .pl {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--muted)
+    }
+
+    .pcard .ph {
+      font-family: var(--sys);
+      font-weight: 700;
+      font-size: 1.05rem;
+      line-height: 1.24;
+      margin: 0;
+      color: var(--fg)
+    }
+
+    .pcard .pbig {
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 1.42rem;
+      letter-spacing: -.01em;
+      color: var(--red);
+      margin: 1px 0
+    }
+
+    .pcard .pbig .pbu {
+      font-size: .6rem;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: .02em
+    }
+
+    .pcard .pours {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      color: var(--green);
+      line-height: 1.5;
+      margin: 0;
+      padding-left: 1.15em;
+      text-indent: -1.15em
+    }
+
+    .pcard .pours .ck {
+      font-weight: 700;
+      margin-right: 5px
+    }
+
+    .pcard .pexp {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--muted);
+      line-height: 1.62;
+      margin: 0;
+      border-top: 1px solid var(--line);
+      padding-top: 11px
+    }
+
+    /* ---------- footer ---------- */
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 3em 22px 5em;
+      text-align: center
+    }
+
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      max-width: 760px;
+      margin: 0 auto 1.6em
+    }
+
+    .pill {
+      font-family: var(--mono);
+      font-size: .78rem;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 4px 13px;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity .5s ease, transform .5s ease
+    }
+
+    footer.in .pill {
+      opacity: 1;
+      transform: none
+    }
+
+    footer a {
+      color: var(--fg);
+      border-bottom: 1px solid var(--red);
+      text-decoration: none
+    }
+
+    footer a:hover {
+      color: var(--red)
+    }
+
+    .retro {
+      max-width: 760px;
+      margin: 0 auto 2.2em;
+      text-align: left
+    }
+
+    .retro .rh {
+      font-family: var(--mono);
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: .18em;
+      color: var(--muted);
+      margin: 0 0 12px;
+      text-align: center
+    }
+
+    .retro ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px
+    }
+
+    .retro li {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+      border-left: 3px solid var(--line);
+      padding: 2px 0 2px 14px
+    }
+
+    .retro li b {
+      color: var(--fg);
+      font-weight: 600
+    }
+
+    /* dedup footnote — the asterisk payoff, last thing on the page */
+    .footnote {
+      max-width: 820px;
+      margin: 3.6em auto 0;
+      text-align: left;
+      border-top: 1px solid var(--line);
+      padding-top: 2.2em
+    }
+
+    .footnote .fn-star {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: var(--red);
+      margin: 0 0 14px;
+      text-align: center
+    }
+
+    .footnote .fn-text {
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.7;
+      color: var(--muted);
+      margin: 16px 0 0
+    }
+
+    .footnote .fn-text b {
+      color: var(--fg);
+      font-weight: 600
+    }
+
+    .footnote .fn-text b.redt {
+      color: var(--red)
+    }
+
+    .footnote .fn-text a {
+      color: var(--fg);
+      border-bottom: 1px solid var(--red);
+      text-decoration: none
+    }
+
+    .footnote .fn-text a:hover {
+      color: var(--red)
+    }
+
+    .footnote .fn-lead {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.6;
+      color: var(--fg);
+      margin: 18px 0 15px
+    }
+
+    .footnote ul.fn-text {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 11px
+    }
+
+    .footnote ul.fn-text>li {
+      border-left: 3px solid var(--line);
+      padding: 2px 0 2px 14px
+    }
+
+    .footnote ul.fn-text ul {
+      list-style: none;
+      margin: 8px 0 1px;
+      padding: 0 0 0 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px
+    }
+
+    .footnote ul.fn-text ul>li {
+      position: relative;
+      padding-left: 16px;
+      font-size: 11.5px;
+      color: var(--muted)
+    }
+
+    .footnote ul.fn-text ul>li::before {
+      content: "—";
+      position: absolute;
+      left: 0;
+      color: var(--red);
+      opacity: .65
+    }
+
+    /* SVG element animation primitives */
+    .node {
+      transform-box: fill-box;
+      transform-origin: center;
+      transform: scale(0);
+      transition: transform .4s ease
+    }
+
+    /* keyboard focus ring for the journey milestones */
+    #journey-svg [role="button"]:focus-visible {
+      outline: 2.5px solid var(--green);
+      outline-offset: 2px
+    }
+
+    /* pulsing halo that says the milestone dots are interactive */
+    @keyframes jpulse {
+      0% {
+        transform: scale(.55);
+        opacity: .5
+      }
+
+      70% {
+        opacity: .12
+      }
+
+      100% {
+        transform: scale(2.4);
+        opacity: 0
+      }
+    }
+
+    .jpulse {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: jpulse 1.8s ease-out infinite
+    }
+
+    /* bobbing "click any step" hint — retires on first interaction */
+    @keyframes jhintbob {
+
+      0%,
+      100% {
+        transform: translateY(0);
+        opacity: .7
+      }
+
+      50% {
+        transform: translateY(-3px);
+        opacity: 1
+      }
+    }
+
+    .jhint {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: jhintbob 1.7s ease-in-out infinite
+    }
+
+    .scat {
+      transform-box: fill-box;
+      transform-origin: center;
+      opacity: 0;
+      transform: scale(0);
+      transition: opacity .5s ease, transform .5s ease
+    }
+
+    .scat.shown {
+      opacity: 1;
+      transform: scale(1)
+    }
+
+    @media (max-width:1120px) {
+      .pgrid {
+        grid-template-columns: 1fr
+      }
+    }
+
+    @media (max-width:720px) {
+      section {
+        padding: 5vh 16px;
+        min-height: auto
+      }
+
+      .grid2,
+      .dgrid,
+      .pgrid {
+        grid-template-columns: 1fr
+      }
+
+      #ministrip {
+        display: none !important
+      }
+
+      .jcard {
+        flex-wrap: wrap
+      }
+
+      #hero {
+        min-height: 100vh
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation: none !important
+      }
+
+      .reveal {
+        opacity: 1;
+        transform: none;
+        transition: none
+      }
+
+      .chip {
+        opacity: 1;
+        transform: none
+      }
+
+      .node {
+        transform: scale(1) !important
+      }
+
+      .scat {
+        opacity: 1 !important;
+        transform: none !important
+      }
+
+      .jcard {
+        opacity: 1 !important;
+        transform: none !important
+      }
+
+      .marquee .run {
+        animation: none !important
+      }
+
+      .scrolldown,
+      .cursor {
+        animation: none !important
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="telemetry"></div>
+  <div class="vignette" id="vignette"></div>
+  <div class="tip" id="tip"></div>
+
+  <!-- sticky progress strip -->
+  <div id="ministrip">
+    <div class="mwrap">
+      <span class="lab">CLIMB</span>
+      <svg id="mini-svg" viewBox="0 0 760 32" preserveAspectRatio="none" aria-hidden="true"></svg>
+      <span class="lab green" id="mini-val">0.95427</span>
+    </div>
+  </div>
+
+  <div class="layer">
+
+    <!-- ============ HERO ============ -->
+    <section id="hero">
+      <div class="col">
+        <p class="pnum">I · Overview</p>
+        <h1>Predicting F1 Pit Stops<span class="h1sub">Top 10%<span class="star" aria-hidden="true">*</span> of
+            +3,000.</span></h1>
+        <p class="lead">What follows is the whole climb, in three parts: <b>the data</b>, and the strong signals I
+          found in it; <b>the models</b> — <b>neural-network and machine-learning models</b> working together — from
+          <span class="gl" data-gl="baseline">baseline</span> to the blend I shipped; and <b>the levers every top
+            solution
+            shared</b>, all of which I'd built on.<span class="cursor">▍</span></p>
+
+        <div class="heroart panel" style="background:#0e1013">
+          <svg id="hero-svg" viewBox="0 0 880 360" role="img"
+            aria-label="Public-LB climb from 0.94211 baseline to 0.95427 private result, asymptoting into a label-noise ceiling band."></svg>
+        </div>
+
+        <div class="chips" id="hero-chips">
+          <div class="chip s0">
+            <div class="v green" data-count="0.0122" data-dec="4" data-prefix="+">+0.0122</div>
+            <div class="k"><span class="gl" data-gl="auc">AUC</span> over baseline</div>
+          </div>
+          <div class="chip s1">
+            <div class="v" data-count="88" data-dec="0">88</div>
+            <div class="k">Logged experiments</div>
+          </div>
+          <div class="chip s2">
+            <div class="v green" data-count="0.95427" data-dec="5">0.95427</div>
+            <div class="k">Private-LB <span class="gl" data-gl="auc">AUC</span></div>
+          </div>
+          <div class="chip s3">
+            <div class="v">M1 Pro<span class="muted"> · 16GB</span></div>
+            <div class="k">1 of 7 bases on <span class="gl" data-gl="compute">free Kaggle GPU</span> · no paid cloud
+            </div>
+          </div>
+        </div>
+
+        <p class="newhere">New to Kaggle or ML? Read the <a href="case-study.md">plain-language walkthrough →</a>
+          &nbsp;·&nbsp; hover any <span class="gl" data-gl="auc">dotted term</span> for a plain definition.</p>
+        <div class="scrolldown">scroll to follow the climb — every chart below is live<span class="chev">⌄</span></div>
+      </div>
+    </section>
+
+    <!-- ============ PART II divider ============ -->
+    <section class="part" id="part-data">
+      <div class="pcol">
+        <p class="pnum">II · The Data</p>
+        <p class="pname">Four seasons, 26 races, 439k laps.</p>
+        <p class="pdek">Beyond a noisy, synthetic season, one thing really drives a pit: strategy, and the
+          engineered features that turn it into usable signal.</p>
+      </div>
+    </section>
+
+    <!-- ============ 1 · DATA ============ -->
+    <section id="data">
+      <div class="col">
+        <p class="kicker"><span class="sp">II.1</span><span class="b">●</span> THE BRIEF</p>
+        <h2>The data I was handed.</h2>
+        <p class="lead">One row is one lap of one driver. The target, <i>PitNextLap</i>, is a yes/no: does this driver
+          pit on the <b>next</b> lap? I was handed <b>439k</b> training laps and <b>188k</b> test laps, covering
+          <b>887</b> drivers over <b>26</b> races and four seasons, in <b>16</b> columns. About <b>20%</b> are pit-laps.
+          The data is <span class="gl" data-gl="synthetic">synthetic</span>, built from real F1 telemetry, so it behaves
+          like an actual season. The odd generator glitch still shows, like an almost pit-less 2023. The label itself is
+          <span class="gl" data-gl="noise">noisy</span>: what my models get wrong doesn't track any feature I could
+          build
+          (<span class="gl" data-gl="rho">ρ</span>≤<b>0.012</b>) — the residual is irreducible, not signal left on the
+          table. You can see that ceiling on the leaderboard, where the whole top clusters within
+          ~<b>0.0005</b> <span class="gl" data-gl="auc">AUC</span> of the leader.
+        </p>
+
+        <div class="panel reveal" style="margin-bottom:18px">
+          <p class="ptitle">Anatomy of one row — one lap of one driver</p>
+          <div class="anatomy">
+            <div class="agroup"><span class="ahead">who / where / when</span>
+              <span class="acol">Driver</span><span class="acol">Year</span><span class="acol">Race</span>
+              <span class="acol">LapNumber</span><span class="acol">Position</span><span class="acol">Stint</span>
+            </div>
+            <div class="agroup"><span class="ahead">tyres</span>
+              <span class="acol">TyreLife</span><span class="acol">Compound</span>
+            </div>
+            <div class="agroup"><span class="ahead">pace</span>
+              <span class="acol">LapTime</span><span class="acol">Cumulative_Degradation</span>
+              <span class="acol">RaceProgress</span><span class="acol">+ derived timing</span>
+            </div>
+            <div class="agroup label"><span class="ahead">the label</span>
+              <span class="acol target">PitNextLap</span>
+            </div>
+          </div>
+          <p class="cap" style="margin:12px 0 0">16 columns per row · the model predicts only the last one (1 = pits
+            next lap)</p>
+        </div>
+
+        <div class="grid2">
+          <div class="panel reveal">
+            <p class="ptitle">Rows &amp; pit rate by year</p>
+            <svg id="year-svg" viewBox="0 0 460 240" role="img"
+              aria-label="Per-year row counts as bars (2022 83k, 2023 136k, 2024 127k, 2025 93k) with pit rate as an overlaid line (26.7, 1.0, 29.5, 28.4 percent). 2023 has the most rows yet almost no pits."></svg>
+            <p class="cap" style="margin:10px 0 0">2023 has the <i>most</i> rows yet ~no pits — a generation artefact
+              (flagged <i>is_2023</i>)</p>
+          </div>
+          <div class="panel reveal d2">
+            <p class="ptitle">Base pit-rate by compound</p>
+            <svg id="comp-svg" viewBox="0 0 460 240" role="img"
+              aria-label="Base pit rate by tyre compound: HARD 33, SOFT 19, INTER 15, MEDIUM 10, WET 3 percent."></svg>
+          </div>
+        </div>
+
+        <div class="panel reveal d3" style="margin-top:18px">
+          <div class="grid2" style="gap:30px;align-items:start">
+            <div style="min-width:0">
+              <p class="ptitle">Class balance — the target</p>
+              <svg id="balance-svg" viewBox="0 0 460 130" role="img"
+                aria-label="Class balance of the label: 80.1 percent no-pit, 19.9 percent pit-next-lap."></svg>
+            </div>
+            <div style="min-width:0">
+              <p class="ptitle">Identities — 887 drivers, mixed real + synthetic</p>
+              <div class="marquee">
+                <span class="run" id="marquee-run">VER&nbsp;&nbsp;HAM&nbsp;&nbsp;LEC&nbsp;&nbsp;<span
+                    class="syn">D109&nbsp;&nbsp;D552</span>&nbsp;&nbsp;NOR&nbsp;&nbsp;PIA&nbsp;&nbsp;<span
+                    class="syn">D331&nbsp;&nbsp;D047</span>&nbsp;&nbsp;RUS&nbsp;&nbsp;<span
+                    class="syn">D710</span>&nbsp;&nbsp;VER&nbsp;&nbsp;HAM&nbsp;&nbsp;LEC&nbsp;&nbsp;<span
+                    class="syn">D109&nbsp;&nbsp;D552</span>&nbsp;&nbsp;NOR&nbsp;&nbsp;PIA&nbsp;&nbsp;<span
+                    class="syn">D331&nbsp;&nbsp;D047</span>&nbsp;&nbsp;RUS&nbsp;&nbsp;<span
+                    class="syn">D710</span>&nbsp;&nbsp;</span>
+              </div>
+              <p class="cap" style="margin:14px 0 0">real drivers (VER, HAM…) sit beside synthetic IDs (D710…)</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ II.2 · TYRELIFE ============ -->
+    <section id="tyre">
+      <div class="col">
+        <p class="kicker"><span class="sp">II.2</span><span class="b">●</span> THE SIGNAL THAT CARRIES</p>
+        <h2>What actually predicts a pit: strategy.</h2>
+        <p class="lead">That <b>strategy</b> lives in tyre age, lap, stint, and what the rest of the field is doing —
+          but no single raw column captures it: <span class="gl" data-gl="rho">ρ</span>=0.27 makes <b>TyreLife</b>
+          the best of them, the rest below. So I <b>engineered 49 new columns</b> from the raw 16 to surface it — the
+          strongest, <i>field_pit_share</i> (how much of the field is pitting now), alone separates a <b>2.2%</b> pit
+          rate from <b>38.2%</b>. The signal lives in the <span class="gl" data-gl="feature">features</span> I built,
+          not the raw inputs.</p>
+
+        <div class="panel">
+          <p class="ptitle">Measured pit rate, by tyre age</p>
+          <svg id="tyre-svg" viewBox="0 0 880 420" role="img" style="touch-action:pan-y"
+            aria-label="Measured PitNextLap rate by tyre-life bucket, climbing from 0.051 to 0.427 then stepping to 0.721 above 50 laps. Dot size scales with sample count."></svg>
+          <p class="cap mono" id="scrub-readout" aria-live="polite" style="text-align:center;margin:10px 0 0">
+            <span class="green">drag or tap across tyre age</span> to read each measured bucket
+          </p>
+        </div>
+
+        <div class="grid2" style="margin-top:18px">
+          <div class="panel reveal">
+            <p class="ptitle">Old tyres (50+ laps) — pit rate by compound</p>
+            <svg id="tc-svg" viewBox="0 0 460 170" role="img"
+              aria-label="At 50-plus laps: HARD 0.711, MEDIUM 0.610, INTER 0.556, SOFT 0.000."></svg>
+            <p class="cap" style="margin:10px 0 0">soft never stretches that long</p>
+          </div>
+          <div class="panel reveal d1">
+            <p class="ptitle">Raw columns, ranked by correlation</p>
+            <svg id="rho-svg" viewBox="0 0 460 170" role="img"
+              aria-label="Correlation with target: TyreLife 0.27, LapNumber 0.27, Stint 0.20, RaceProgress 0.19, Position about 0."></svg>
+            <p class="cap" style="margin:10px 0 0">no raw column clears ρ≈0.27 — the signal is faint</p>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:18px">
+          <p class="ptitle">Top engineered features — pit rate, lowest vs highest bucket</p>
+          <svg id="lift-svg" viewBox="0 0 880 230" role="img"
+            aria-label="Engineered-feature lift, pit rate from the bottom to the top bucket: field_pit_share 2.2 to 38.2 percent, tyre_life_norm 3.5 to 35.9 percent, ahead/behind just pitted 7.8 to 26.3 percent."></svg>
+          <p class="cap" style="margin:12px 0 0">raw columns barely correlate (ρ≈0.27); these features instead swing
+            the pit rate from low (grey) to high (red) — the longer the line, the stronger the predictor</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PART III divider ============ -->
+    <section class="part" id="part-models">
+      <div class="pcol">
+        <p class="pnum">III · The Models</p>
+        <p class="pname">What I shipped, and why I took this path.</p>
+        <p class="pdek">How the model is built and the blend I shipped, and the climb from baseline to final with the
+          reasoning behind every step.</p>
+      </div>
+    </section>
+
+    <!-- ============ 3a · FINAL BLEND ============ -->
+    <section id="blend">
+      <div class="col">
+        <p class="kicker"><span class="sp">III.1</span><span class="b">●</span> WHAT I SHIPPED</p>
+        <h2>The final submission: a 7-model <span class="gl" data-gl="blend">blend</span>, two-thirds <span class="gl"
+            data-gl="realmlp">RealMLP</span>.</h2>
+        <p class="lead">It combines both worlds: one tuned tabular <b>neural network</b> anchors the blend, and
+          <b>machine-learning models</b> (gradient-boosted trees) fill the residual. Why blend at all?
+          Models that <i>fail differently</i> cancel each other's <span class="gl" data-gl="noise">noise</span>, so the
+          average lands above any single member. It only pays when they disagree, and here diversity is scarce, so
+          the blend stays small and deliberate.</p>
+
+        <p class="ptitle" style="margin:6px 0 12px">Why three families, seven models</p>
+        <div class="pgrid" style="margin-bottom:16px">
+          <div class="pcard">
+            <div class="pl">×3 · neural net</div>
+            <h3 class="ph">RealMLP</h3>
+            <p class="pexp">A tuned MLP that learns a per-driver <span class="gl"
+                data-gl="realmlp"><b>embedding</b></span> — driver style, the residual the trees
+              can only <span class="gl" data-gl="targetenc">target-encode</span>. The strongest family: every tree-led
+              blend scored <i>below</i> it, so it earns
+              <b>two-thirds</b> of the weight.
+            </p>
+          </div>
+          <div class="pcard">
+            <div class="pl">×2 · <span class="gl" data-gl="gbdt">boosted trees</span></div>
+            <h3 class="ph"><span class="gl" data-gl="gbdt">XGBoost</span></h3>
+            <p class="pexp">Rule-based splits. The one fix that mattered here: raising its bin resolution
+              (<i>max_bin</i>) so it stopped blurring the high-resolution category features.</p>
+          </div>
+          <div class="pcard">
+            <div class="pl">×2 · boosted trees</div>
+            <h3 class="ph"><span class="gl" data-gl="gbdt">CatBoost</span></h3>
+            <p class="pexp">Native categorical handling — suits the 887 drivers without manual encoding, and is
+              decorrelated enough from XGBoost to earn its own slot.</p>
+          </div>
+        </div>
+        <p class="lead">Multiple copies per family add robustness, not redundancy. RealMLP is a 6-seed average (which
+          cancels
+          run-to-run wobble), plus a GPU <span class="gl" data-gl="pseudo">pseudo-label</span> variant and a single
+          seed. The trees each add a lean and a
+          decorrelated variant. All seven use the lean <span class="gl" data-gl="difffe"><b>diffFE</b></span> feature
+          set and train on the competition data plus
+          a <span class="gl" data-gl="leak">leak-checked</span> public F1-strategy set. Those <b>+101k rows</b> earned
+          their place: removing them lowered the
+          score. The weights come from a <b>constrained</b> <span class="gl"
+            data-gl="coorddesc">coordinate-descent</span> search, not a greedy free-for-all, so
+          the two pseudo-label variants earn their slots on <i>diversity</i>, not a score bump.</p>
+
+        <div class="panel">
+          <p class="ptitle">How the model is built — and where the weight goes</p>
+          <svg id="pipeline-svg" viewBox="0 0 880 200" role="img"
+            aria-label="Flow: 439,140 raw laps to about 49 lean diffFE features, into a weighted blend shown as a proportioned bar of 7 self-trained bases grouped by family (RealMLP 67%, split 31.5/29.3/5.8 with one base on a free Kaggle GPU; XGBoost 26%, split 24.2/2.0; CatBoost 7%, split 3.6/3.5), into one submission scoring 0.95427 private."></svg>
+          <p class="cap" style="margin:12px 0 0">weights set by <b>coordinate descent on the 5-fold <span class="gl"
+                data-gl="oof">out-of-fold
+                predictions</span></b>, then frozen — the only honest surface while the test labels stay hidden. the
+            split is
+            stratified by Year×PitNextLap and audited <b>leak-free</b>. it's stratified, not grouped by driver, so OOF
+            runs a touch optimistic, which is why I re-checked every gain on the real board. the climb below is <b>88
+              logged experiments over ~19 cycles</b>, each one a hypothesis.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 4 · CLIMB / JOURNEY ============ -->
+    <section id="journey">
+      <div class="col stage">
+        <p class="kicker"><span class="sp">III.2</span><span class="b">●</span> BASELINE → FINAL</p>
+        <h2>Baseline → final: every step was a diagnosis.</h2>
+        <p class="lead">11 milestones from the <b>0.94211</b> <span class="gl" data-gl="baseline">baseline</span> to
+          <b>0.95402</b>. Red = a <span class="gl" data-gl="lb">leaderboard</span> win, green = the <span class="gl"
+            data-gl="realmlp">RealMLP</span> pivot,
+          hollow = reverted. Each was a hypothesis, kept only if it beat the noise floor on held-out data. Diagnoses,
+          not luck. The flat stretches matter too: stalled <span class="gl" data-gl="stack">stacking</span> and feature
+          tweaks are how I learned the <span class="gl" data-gl="blend">ensemble</span>
+          axis was tapped out, and only a new model family could move the number. Click or tap any step to open the
+          experiment behind it.</p>
+
+        <div class="panel">
+          <p class="ptitle">The climb — baseline to final</p>
+          <svg id="journey-svg" viewBox="0 0 880 250" role="img"
+            aria-label="Interactive timeline of the eleven milestones from the 0.94211 baseline to the final blend, with the green RealMLP pivot at step 6 and the private flag 0.95427 at the end. Red segments are leaderboard wins, dashed segments are reverted dead ends."></svg>
+        </div>
+
+        <div class="jdetail pivot" id="jdetail" aria-live="polite"></div>
+      </div>
+    </section>
+
+
+    <!-- ============ PART IV divider ============ -->
+    <section class="part" id="part-stop">
+      <div class="pcol">
+        <p class="pnum">IV · The Right Path</p>
+        <p class="pname">The top of the board found the same three levers I did.</p>
+        <p class="pdek">When the competition closed, three patterns recurred in every strong solution, and I'd built on
+          all three. The only gap was scale: seven models against the board's 186 to 218.</p>
+      </div>
+    </section>
+
+    <!-- ============ IV.1 · THE THREE PATTERNS (the focus) ============ -->
+    <section id="patterns">
+      <div class="col">
+        <p class="kicker"><span class="sp">IV.1</span><span class="b">●</span> WHAT THE TOP OF THE BOARD SHARED</p>
+        <h2>Three patterns recur in every top solution.</h2>
+        <p class="lead">When the competition closed, I read the strongest solutions on the board. There was no
+          secret feature, no exotic model, just three levers I'd already built on. The strongest entries <b>stacked
+            anywhere from 186 to 218 base models</b> (trees, MLPs, transformer-style tabular nets — one even folded in a
+          <span class="gl" data-gl="gnn">GNN</span> for diversity),
+          <b>finished with a <span class="gl" data-gl="stack">linear meta-learner on logits</span></b>, and found their
+          real edge in <b>how they used the original data</b> and absorbed its distribution shift. I reached the same
+          <span class="gl" data-gl="lb">leaderboard</span> band with a deliberate <b>7-model blend</b>, a
+          <b>constrained,
+            regularised</b> blend, and a <span class="gl" data-gl="difffe"><b>lean diffFE</b></span> feature set. The
+          one axis I didn't match was <i>scale</i>.
+          But on this noise ceiling, all those extra models bought only ≈<b>+0.0008</b> <span class="gl"
+            data-gl="auc">AUC</span>. I found the path. The rest
+          was compute.
+        </p>
+
+        <div class="panel reveal">
+          <p class="ptitle">Scale — my 7 models vs the board's 186–218</p>
+          <svg id="patterns-svg" viewBox="0 0 880 210" role="img"
+            aria-label="Scale contrast. Top lane: my blend, 7 model dots sized by weight, the largest a RealMLP. Bottom lane: the top of the board, a dense swarm of roughly 200 dots standing for the 186 to 218 models they stacked. Right-side verdict: 27 to 31 times more models for plus 0.0008 AUC, landing in the same band."></svg>
+        </div>
+
+        <div class="pgrid" style="margin-top:22px">
+          <div class="pcard reveal">
+            <div class="pl">Pattern 01 · Diversity</div>
+            <h3 class="ph">Stack models that disagree</h3>
+            <div class="pbig">186–218 <span class="pbu">base models</span></div>
+            <p class="pours"><span class="ck">✓</span>mine — a deliberate 7-model blend</p>
+            <p class="pexp">Averaging models whose errors are uncorrelated cancels noise. But under this much label
+              noise diversity is scarce — past a handful, extra models mostly add correlated copies, so I kept it small
+              and chosen.</p>
+          </div>
+          <div class="pcard reveal d1">
+            <div class="pl">Pattern 02 · The finisher</div>
+            <h3 class="ph">A linear meta-learner on logits</h3>
+            <div class="pbig"><span class="gl" data-gl="stack">logit-LR</span> <span class="pbu">/ hill-climbing</span>
+            </div>
+            <p class="pours"><span class="ck">✓</span>mine — a constrained blend</p>
+            <p class="pexp">The same family of finisher. Left unconstrained it chases the offline score into noise —
+              which is why my greedy blend topped offline but came back lower on the board.</p>
+          </div>
+          <div class="pcard reveal d2">
+            <div class="pl">Pattern 03 · The real edge</div>
+            <h3 class="ph">Lean on the original data</h3>
+            <div class="pbig">diffFE <span class="pbu">subtract, don't pile on</span></div>
+            <p class="pours"><span class="ck">✓</span>mine — a lean feature set</p>
+            <p class="pexp">The edge lived in how you used the original data and absorbed its distribution shift — the
+              top of the board did it on top of heavy feature engineering. diffFE was my leaner route to the same
+              instinct: drop the inputs that don't transfer — stripping the heavy cross-category block lifted every
+              model (<span class="gl" data-gl="gbdt">XGBoost</span> 0.95263→0.95291).</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ IV.2 · THE CALL — greedy lost on the board I could see, not on a predicted gauge ============ -->
+    <section id="transfer">
+      <div class="col">
+        <p class="kicker"><span class="sp">IV.2</span><span class="b">●</span> CHOOSING THE FINAL SUBMISSION</p>
+        <h2>The highest offline score wasn't the one I shipped.</h2>
+        <p class="lead">My highest offline score wasn't a single model — it was a <span class="gl"
+            data-gl="greedy">greedy</span> blend at OOF <b>0.95479</b>, and shipping it looked like the obvious move.
+          Greedy selection exists to squeeze exactly that number: start empty, keep adding whichever model (repeats
+          allowed) most improves the <span class="gl" data-gl="oof">OOF</span> score, then average the picks — same
+          models as my other blend, just weighted to chase the offline metric as hard as possible. That's also why I
+          didn't trust it: near the noise ceiling the offline score oversells — a bump is as likely to be the blend
+          fitting <span class="gl" data-gl="noise">noise</span> as real signal — and chasing it that hard invites
+          exactly that. The public <span class="gl" data-gl="lb">board</span>, a visible slice of the test set, agreed:
+          greedy came back <b>lower</b> at 0.95380, under my constrained blend's 0.95402, so I shipped the constrained
+          one. At the close, the hidden private board confirmed the call — <b>0.95427</b> to greedy's 0.95408.
+        </p>
+
+        <p class="lead" style="margin-top:22px">The two blends side by side, across all three columns: my
+          <b>constrained</b> blend (shipped) and the higher-offline <span class="gl" data-gl="greedy">greedy</span> one
+          I
+          left off. Greedy tops the <b>offline</b> column and loses both columns that actually count:
+        </p>
+        <div class="panel">
+          <p class="ptitle">Shipped vs greedy — offline, public, private</p>
+          <svg id="finalists-svg" viewBox="0 0 880 360" role="img"
+            aria-label="Grouped bars comparing two blends across offline, public and private scores. The greedy blend is highest offline at 0.95479 but lower on both leaderboards (public 0.95380, private 0.95408); the shipped constrained blend (0.95462 offline) wins both public 0.95402 and private 0.95427."></svg>
+          <p class="cap" style="margin-top:14px">Both came from the same weight optimiser over the same models — the
+            shipped blend <b>constrained / regularised</b>, <span class="gl" data-gl="greedy">greedy</span> not. Folding
+            greedy back <i>in</i> wouldn't help: same bases, so it only re-loosens those weights toward the version that
+            scored lower on the board. That one constraint is the whole difference between the offline leader and the
+            model that held up.</p>
+        </div>
+      </div>
+    </section>
+
+  </div><!-- /layer -->
+
+  <footer id="footer">
+    <div class="retro">
+      <p class="rh">What I'd try next</p>
+      <ul>
+        <li><b>Grow the model zoo.</b> The top of the board ran 186–218 base models; I ran 7 — more families would add
+          the uncorrelated errors the empty quadrant was missing.</li>
+        <li><b>Finish with a <span class="gl" data-gl="stack">logit-stack</span>, not fixed weights.</b> The
+          meta-learner every strong solution used; my
+          constrained blend is the same family, one step short.</li>
+        <li><b>Mine the original data harder.</b> The consistent edge at the top — more shift-aware, <span class="gl"
+            data-gl="targetenc">target-encoded</span>
+          views of the real F1 dataset.</li>
+      </ul>
+    </div>
+    <div class="pills">
+      <span class="pill"><span class="gl" data-gl="gbdt">LightGBM</span></span><span class="pill">CatBoost</span><span
+        class="pill">XGBoost</span>
+      <span class="pill">RealMLP / PyTabKit</span><span class="pill">stratified 5-fold CV</span>
+      <span class="pill"><span class="gl" data-gl="pseudo">pseudo-labeling</span></span><span class="pill">greedy
+        ensemble selection</span>
+      <span class="pill"><span class="gl" data-gl="transfer">OOF→LB transfer</span> analysis</span><span
+        class="pill">ablation studies</span>
+    </div>
+    <!-- the asterisk, explained — the last thing on the page -->
+    <div id="dedup-note" class="footnote">
+      <p class="fn-star">* how "top 10%" is measured</p>
+      <div class="panel" style="padding:14px 16px 8px">
+        <p class="ptitle">Public-LB score density — 260 teams on one spike</p>
+        <svg id="dedup-svg" viewBox="0 0 880 168" role="img"
+          aria-label="Public-leaderboard score density from the top 50% (0.94797) to the public leader (0.95497). A long low tail rises to a single towering spike at 0.95454, where 260 teams share one identical score from a copied notebook; my 0.95402 and the top-50% line are marked."></svg>
+      </div>
+      <p class="fn-lead">Where I land depends on how you count — and a wall of identical, copied scores sits just
+        above me.</p>
+      <ul class="fn-text">
+        <li><b>Final rank 521&#8202;/&#8202;3,023 — top 17%</b>, on the private leaderboard — the 80% of the test set
+          that sets the official result. The spike below is the public board, the 20% slice everyone could see during
+          the contest.</li>
+        <li>The score just above me is shared by <b class="redt">260 teams</b> at the <i>identical</i> value 0.95454.
+          <ul>
+            <li>Independent models never tie to five decimals.</li>
+          </ul>
+        </li>
+        <li>That bloc is <b>one public notebook, run and submitted unchanged</b>.
+          <ul>
+            <li>It trains no model — it just rank-blends other people's public submission CSVs into a fixed output, so
+              anyone who runs it submits the same 0.95454.</li>
+          </ul>
+        </li>
+        <li>Collapse it to a single entry and I sit <b>~270th of ~2,760 — top&nbsp;~10%</b>.</li>
+      </ul>
+      <p class="fn-text" style="margin-top:14px"><a href="data/leaderboard.html">See the full leaderboard
+          breakdown&nbsp;→</a></p>
+    </div>
+  </footer>
+
+  <script>
+    "use strict";
+    (function () {
+      const RM = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const NS = "http://www.w3.org/2000/svg";
+      const C = {
+        bg: "#14161a", panel: "#191c22", line: "#262a31", fg: "#e8e6e1", muted: "#8b8f98",
+        red: "#e10600", green: "#5fb878", grid: "rgba(255,255,255,.05)", orange: "#ff7a3c"
+      };
+      function el(tag, attrs) {
+        const e = document.createElementNS(NS, tag);
+        for (const k in attrs) e.setAttribute(k, attrs[k]); return e;
+      }
+      function txt(x, y, s, fill, size, anchor) {
+        const t = el("text", {
+          x: x, y: y, fill: fill || C.muted, "font-size": size || 12,
+          "text-anchor": anchor || "start", "font-family": "ui-monospace, Menlo, monospace"
+        });
+        t.textContent = s; return t;
+      }
+      const lerp = (a, b, t) => a + (b - a) * t;
+      const ease = t => 1 - Math.pow(1 - t, 3);
+      // robust self-draw: animate a path/line from fully-dashed to drawn
+      function drawIn(elm, dur, delay) {
+        const len = elm.getTotalLength();
+        elm.style.strokeDasharray = len;
+        if (RM) { elm.style.strokeDashoffset = 0; return; }
+        elm.style.strokeDashoffset = len;
+        elm.getBoundingClientRect(); // force reflow so the start state is committed
+        requestAnimationFrame(() => {
+          elm.style.transition = 'stroke-dashoffset ' + (dur || 1400) + 'ms cubic-bezier(.22,.61,.36,1) ' + (delay || 0) + 'ms';
+          elm.style.strokeDashoffset = 0;
+        });
+      }
+      // robust scatter reveal for elements carrying class "scat"
+      function scatIn(elm, delayMs) {
+        if (RM) { elm.classList.add('shown'); return; }
+        elm.style.transitionDelay = (delayMs || 0) + 'ms';
+        requestAnimationFrame(() => requestAnimationFrame(() => elm.classList.add('shown')));
+      }
+
+      /* ---------- count-up engine ---------- */
+      function countUp(node) {
+        const target = parseFloat(node.dataset.count), dec = parseInt(node.dataset.dec || "0", 10);
+        const pre = node.dataset.prefix || "", suf = node.dataset.suffix || "";
+        const scale = parseFloat(node.dataset.scale || "1");
+        const fmt = v => {
+          let n = v / scale;
+          let s = dec > 0 ? n.toFixed(dec) : Math.round(n).toLocaleString('en-US');
+          return pre + s + suf;
+        };
+        if (RM) { node.textContent = fmt(target); return; }
+        const dur = 1100, t0 = performance.now();
+        function step(now) {
+          const p = Math.min(1, (now - t0) / dur);
+          node.textContent = fmt(target * ease(p));
+          if (p < 1) requestAnimationFrame(step); else node.textContent = fmt(target);
+        }
+        requestAnimationFrame(step);
+      }
+      function countGroup(root) { root.querySelectorAll('[data-count]').forEach(countUp); }
+
+      /* ---------- shared IntersectionObserver ---------- */
+      const builders = {};
+      const fired = new Set();
+      const io = new IntersectionObserver((ents) => {
+        ents.forEach(e => {
+          if (e.isIntersecting && !fired.has(e.target)) {
+            fired.add(e.target);
+            e.target.classList.add('in');
+            const fn = builders[e.target.id];
+            if (fn) fn(e.target);
+          }
+        });
+      }, { threshold: 0.35 });
+
+      /* ============================================================ */
+      /* HERO + MINI line (shared geometry)                            */
+      /* ============================================================ */
+      // One value per journey card (11 cards). Reverted/inconclusive steps (2,4,10)
+      // carry forward the previous achieved LB — no gain — so node k always maps to card k.
+      const climb = [0.94211, 0.94211, 0.94833, 0.94833, 0.95066, 0.95331, 0.95342, 0.95372, 0.95388, 0.95388, 0.95402];
+      const PRIVATE = 0.95427;
+      const YMIN = 0.9415, YMAX = 0.95503, CEIL_LO = 0.9545, CEIL_HI = 0.95503;
+
+      function buildClimbLine(svg, W, H, opts) {
+        opts = opts || {};
+        const ml = opts.ml != null ? opts.ml : 62, mr = opts.mr != null ? opts.mr : 60,
+          mt = opts.mt != null ? opts.mt : 34, mb = opts.mb != null ? opts.mb : 34;
+        const n = climb.length; // private is index n (after)
+        const pw = W - ml - mr, ph = H - mt - mb;
+        const X = i => ml + pw * i / n;                 // 0..n  (n positions => private at n)
+        const Y = v => mt + ph * (1 - (v - YMIN) / (YMAX - YMIN));
+        // ceiling band (pre-drawn)
+        svg.appendChild(el("rect", {
+          x: ml, y: Y(CEIL_HI), width: pw, height: Y(CEIL_LO) - Y(CEIL_HI),
+          fill: "rgba(225,6,0,.07)"
+        }));
+        svg.appendChild(el("line", {
+          x1: ml, y1: Y(CEIL_LO), x2: W - mr, y2: Y(CEIL_LO),
+          stroke: C.red, "stroke-width": 1, "stroke-dasharray": "6 5", opacity: .55
+        }));
+        if (!opts.mini) {
+          svg.appendChild(txt(W - mr, Y(CEIL_HI) - 6, "SHARED CEILING", C.red, 10, "end"));
+          // y grid
+          [0.942, 0.945, 0.948, 0.951, 0.954].forEach(gv => {
+            svg.appendChild(el("line", { x1: ml, y1: Y(gv), x2: W - mr, y2: Y(gv), stroke: C.grid }));
+            svg.appendChild(txt(ml - 8, Y(gv) + 4, gv.toFixed(3), C.muted, 11, "end"));
+          });
+        }
+        // path data over public points
+        let d = "";
+        for (let i = 0; i < n; i++) { d += (i === 0 ? "M" : "L") + X(i).toFixed(1) + "," + Y(climb[i]).toFixed(1); }
+        // extend to private
+        const dFull = d + "L" + X(n).toFixed(1) + "," + Y(PRIVATE).toFixed(1);
+        const path = el("path", {
+          d: dFull, fill: "none", stroke: C.red, "stroke-width": opts.mini ? 1.6 : 2.6,
+          "stroke-linejoin": "round", "stroke-linecap": "round"
+        });
+        svg.appendChild(path);
+        return { path, X, Y, n, mr };
+      }
+
+      builders.hero = function (sec) {
+        const svg = document.getElementById('hero-svg');
+        const W = 880, H = 360;
+        const g = buildClimbLine(svg, W, H, {});
+        const len = g.path.getTotalLength();
+        // milestone nodes (drawn but scaled 0)
+        const nodes = [];
+        for (let i = 0; i < g.n; i++) {
+          const c = el("circle", { cx: g.X(i), cy: g.Y(climb[i]), r: 4, fill: C.red, class: "node" });
+          svg.appendChild(c); nodes.push(c);
+        }
+        // private green diamond flag
+        const px = g.X(g.n), py = g.Y(PRIVATE);
+        const diamond = el("path", {
+          d: `M${px} ${py - 7} L${px + 7} ${py} L${px} ${py + 7} L${px - 7} ${py} Z`,
+          fill: C.green, class: "node"
+        });
+        const flag = txt(px, py - 14, "PRIVATE 0.95427", C.green, 11, "middle");
+        flag.classList.add("node");
+        svg.appendChild(diamond); svg.appendChild(flag);
+        // headlight + trail
+        const trail = el("line", {
+          x1: 0, y1: 0, x2: 0, y2: 0, stroke: C.red, "stroke-width": 3,
+          "stroke-linecap": "round", opacity: 0
+        });
+        const head = el("circle", {
+          cx: 0, cy: 0, r: 5, fill: "#fff", opacity: 0,
+          filter: "drop-shadow(0 0 6px #e10600)"
+        });
+        svg.appendChild(trail); svg.appendChild(head);
+
+        if (RM) {
+          nodes.forEach(n => n.classList.add('lit'));
+          diamond.classList.add('lit'); flag.classList.add('lit');
+          document.querySelectorAll('#hero-chips .chip').forEach(c => c.classList.add('lit'));
+          countGroup(document.getElementById('hero-chips'));
+          return;
+        }
+        // animate draw
+        g.path.style.strokeDasharray = len; g.path.style.strokeDashoffset = len;
+        const dur = 2000, t0 = performance.now();
+        let lastPassed = -1;
+        function frame(now) {
+          const p = Math.min(1, (now - t0) / dur), e = ease(p);
+          g.path.style.strokeDashoffset = len * (1 - e);
+          const pt = g.path.getPointAtLength(len * e);
+          const prev = g.path.getPointAtLength(Math.max(0, len * e - 14));
+          head.setAttribute('cx', pt.x); head.setAttribute('cy', pt.y); head.setAttribute('opacity', 1);
+          trail.setAttribute('x1', prev.x); trail.setAttribute('y1', prev.y);
+          trail.setAttribute('x2', pt.x); trail.setAttribute('y2', pt.y);
+          trail.setAttribute('opacity', .6);
+          // pop nodes the head has passed (compare by x)
+          for (let i = 0; i < g.n; i++) {
+            if (pt.x >= g.X(i) - 1 && i > lastPassed) { nodes[i].classList.add('lit'); }
+          }
+          if (p < 1) requestAnimationFrame(frame);
+          else {
+            head.setAttribute('opacity', 0); trail.setAttribute('opacity', 0);
+            nodes.forEach(n => n.classList.add('lit'));
+            diamond.classList.add('lit'); flag.classList.add('lit');
+            document.querySelectorAll('#hero-chips .chip').forEach(c => c.classList.add('lit'));
+            countGroup(document.getElementById('hero-chips'));
+          }
+        }
+        requestAnimationFrame(frame);
+      };
+      // node lit -> scale (transition defined in .node base rule)
+      (function () {
+        const style = document.createElement('style');
+        style.textContent = ".node.lit{transform:scale(1)}";
+        document.head.appendChild(style);
+      })();
+
+      /* mini strip line */
+      function buildMini() {
+        miniSvg = document.getElementById('mini-svg');
+        miniVal = document.getElementById('mini-val');
+        buildClimbLine(miniSvg, 760, 32, { mini: true, ml: 6, mr: 6, mt: 6, mb: 6 });
+        miniSvg.classList.add('in');
+      }
+
+      /* ============================================================ */
+      /* DATA                                                           */
+      /* ============================================================ */
+      builders.data = function (sec) {
+        countGroup(sec);
+        // ROWS + PIT RATE BY YEAR — one frame: 2023 has the most data yet ~no pits
+        (function () {
+          const svg = document.getElementById('year-svg');
+          const W = 460, H = 240, ml = 24, mr = 24, mt = 26, mb = 46;
+          const yrs = ["2022", "2023", "2024", "2025"];
+          const rows = [82989, 136147, 127110, 92894];
+          const rate = [26.7, 1.0, 29.5, 28.4];
+          const live = [true, false, true, true];
+          const rowMax = 140000, rateMax = 38;
+          const pw = W - ml - mr, ph = H - mt - mb, bw = pw / yrs.length * 0.46;
+          const cx = i => ml + pw * (i + 0.5) / yrs.length;
+          const yRate = v => mt + ph - ph * v / rateMax;
+          svg.appendChild(txt(ml, mt - 10, "bars = rows", C.muted, 9.5, "start"));
+          svg.appendChild(txt(W - mr, mt - 10, "● pit rate", C.green, 9.5, "end"));
+          // row-count bars
+          yrs.forEach((yr, i) => {
+            const x = cx(i) - bw / 2, h = ph * rows[i] / rowMax, y = mt + ph - h;
+            const r = el("rect", { x: x, y: mt + ph, width: bw, height: 0, rx: 3, fill: live[i] ? C.red : C.muted, opacity: live[i] ? .8 : .4 });
+            svg.appendChild(r);
+            svg.appendChild(txt(cx(i), mt + ph + 18, yr, C.muted, 11, "middle"));
+            const vl = txt(cx(i), y - 6, (rows[i] / 1000).toFixed(0) + "k", C.muted, 9.5, "middle"); vl.setAttribute('opacity', 0); svg.appendChild(vl);
+            const anim = () => { r.setAttribute('y', y); r.setAttribute('height', h); vl.setAttribute('opacity', 1); };
+            if (RM) { r.style.transition = "none"; anim(); }
+            else {
+              r.style.transition = "y .8s cubic-bezier(.22,.61,.36,1) " + (i * .1) + "s, height .8s cubic-bezier(.22,.61,.36,1) " + (i * .1) + "s";
+              vl.style.transition = "opacity .4s " + (0.6 + i * .1) + "s";
+              requestAnimationFrame(() => requestAnimationFrame(anim));
+            }
+          });
+          // pit-rate line + dots (overlay, secondary scale)
+          let dp = "";
+          yrs.forEach((yr, i) => { dp += (i === 0 ? "M" : "L") + cx(i).toFixed(1) + "," + yRate(rate[i]).toFixed(1); });
+          const line = el("path", { d: dp, fill: "none", stroke: C.green, "stroke-width": 1.6, opacity: 0 });
+          svg.appendChild(line);
+          yrs.forEach((yr, i) => {
+            const col = live[i] ? C.green : C.red;
+            const dot = el("circle", { cx: cx(i), cy: yRate(rate[i]), r: 3.6, fill: col, opacity: 0 });
+            const rl = txt(cx(i), yRate(rate[i]) - 9, rate[i].toFixed(1) + "%", col, 9.5, "middle"); rl.setAttribute('opacity', 0);
+            svg.appendChild(dot); svg.appendChild(rl);
+            const show = () => { dot.setAttribute('opacity', 1); rl.setAttribute('opacity', 1); };
+            if (RM) show();
+            else { dot.style.transition = "opacity .4s " + (1 + i * .08) + "s"; rl.style.transition = "opacity .4s " + (1 + i * .08) + "s"; requestAnimationFrame(() => requestAnimationFrame(show)); }
+          });
+          const showLine = () => line.setAttribute('opacity', .5);
+          if (RM) showLine();
+          else { line.style.transition = "opacity .5s 1s"; requestAnimationFrame(() => requestAnimationFrame(showLine)); }
+        })();
+        // COMPOUND ranked horizontal bars
+        (function () {
+          const svg = document.getElementById('comp-svg');
+          const W = 460, H = 240, ml = 70, mr = 44, mt = 14, mb = 14;
+          const data = [["HARD", 33], ["SOFT", 19], ["INTER", 15], ["MEDIUM", 10], ["WET", 3]];
+          const pw = W - ml - mr, rowH = (H - mt - mb) / data.length;
+          data.forEach((d, i) => {
+            const [nm, pct] = d; const y = mt + rowH * i + rowH * 0.18, bh = rowH * 0.6;
+            const w = pw * pct / 35;
+            svg.appendChild(txt(ml - 8, y + bh * 0.7, nm, C.muted, 11, "end"));
+            const r = el("rect", {
+              x: ml, y: y, width: 0, height: bh, rx: 3, fill: C.red, opacity: .85,
+              style: RM ? "" : "transition:width .7s cubic-bezier(.22,.61,.36,1) " + (i * .08) + "s"
+            });
+            svg.appendChild(r);
+            const vl = txt(ml + 8, y + bh * 0.7, pct + "%", C.fg, 11, "start"); vl.setAttribute('opacity', 0); svg.appendChild(vl);
+            if (RM) { r.setAttribute('width', w); vl.setAttribute('opacity', 1); vl.setAttribute('x', ml + w + 6); }
+            else requestAnimationFrame(() => requestAnimationFrame(() => {
+              r.setAttribute('width', w);
+              setTimeout(() => { vl.setAttribute('x', ml + w + 6); vl.setAttribute('opacity', 1); }, 300 + i * 80);
+            }));
+          });
+        })();
+        // (rows + pit rate now share the year-svg chart above)
+        // CLASS BALANCE — single stacked bar of the label (80.1% no-pit / 19.9% pit)
+        (function () {
+          const svg = document.getElementById('balance-svg');
+          const W = 460, H = 130, ml = 20, mr = 20, barY = 28, barH = 44, pw = W - ml - mr;
+          const pit = 0.199;
+          const noW = pw * (1 - pit), piW = pw * pit;
+          svg.appendChild(txt(ml, barY - 14, "the label: PitNextLap", C.muted, 11, "start"));
+          const rNo = el("rect", { x: ml, y: barY, width: 0, height: barH, rx: 3, fill: C.muted, opacity: .45 });
+          const rPi = el("rect", { x: ml + noW, y: barY, width: 0, height: barH, rx: 3, fill: C.red, opacity: .9 });
+          svg.appendChild(rNo); svg.appendChild(rPi);
+          const lNo = txt(ml + 8, barY + barH + 22, "80.1%  no pit", C.muted, 12, "start");
+          const lPi = txt(W - mr, barY + barH + 22, "19.9%  pit next lap", C.red, 12, "end");
+          svg.appendChild(lNo); svg.appendChild(lPi);
+          svg.appendChild(txt(W / 2, barY + barH + 44, "~1-in-5 laps ends in a pit — high for real F1, another synthetic tell", C.muted, 10, "middle"));
+          if (RM) { rNo.setAttribute('width', noW); rPi.setAttribute('width', piW); return; }
+          rNo.style.transition = "width .8s cubic-bezier(.22,.61,.36,1)";
+          rPi.style.transition = "width .8s cubic-bezier(.22,.61,.36,1) .2s";
+          requestAnimationFrame(() => requestAnimationFrame(() => { rNo.setAttribute('width', noW); rPi.setAttribute('width', piW); }));
+        })();
+      };
+
+      /* ============================================================ */
+      /* TYRELIFE                                                       */
+      /* ============================================================ */
+      const tyre = [{ m: 2.5, lab: "(0,5]", y: 0.051, n: 90638 }, { m: 7.5, lab: "(5,10]", y: 0.134, n: 92543 },
+      { m: 12.5, lab: "(10,15]", y: 0.196, n: 87313 }, { m: 17.5, lab: "(15,20]", y: 0.263, n: 66479 },
+      { m: 22.5, lab: "(20,25]", y: 0.311, n: 45310 }, { m: 27.5, lab: "(25,30]", y: 0.348, n: 28318 },
+      { m: 35, lab: "(30,40]", y: 0.393, n: 21878 }, { m: 45, lab: "(40,50]", y: 0.427, n: 5280 },
+      { m: 60, lab: "(50,70]", y: 0.721, n: 1281 }];
+      let tyreGeom = null;
+      builders.tyre = function (sec) {
+        const svg = document.getElementById('tyre-svg');
+        const W = 880, H = 420, ml = 58, mr = 30, mt = 26, mb = 58;
+        const pw = W - ml - mr, ph = H - mt - mb;
+        const XMIN = 0, XMAX = 65, YMIN2 = 0, YMAX2 = 0.78;
+        const X = v => ml + pw * (v - XMIN) / (XMAX - XMIN);
+        const Y = v => mt + ph * (1 - (v - YMIN2) / (YMAX2 - YMIN2));
+        tyreGeom = { X, Y, ml, mr, W, svg };
+        // grid + axes
+        [0, 0.2, 0.4, 0.6].forEach(gy => {
+          svg.appendChild(el("line", { x1: ml, y1: Y(gy), x2: W - mr, y2: Y(gy), stroke: C.grid }));
+          svg.appendChild(txt(ml - 8, Y(gy) + 4, gy.toFixed(1), C.muted, 11, "end"));
+        });
+        [0, 10, 20, 30, 40, 50, 60].forEach(gx => { svg.appendChild(txt(X(gx), H - mb + 18, gx + "", C.muted, 10, "middle")); });
+        svg.appendChild(txt(W / 2, H - 12, "TyreLife (laps)", C.muted, 11, "middle"));
+        // area + line path
+        const lastI = tyre.length - 1;
+        let dl = "", da = "M" + X(tyre[0].m) + "," + Y(0);
+        tyre.forEach((p, i) => {
+          if (i < lastI) dl += (i === 0 ? "M" : "L") + X(p.m).toFixed(1) + "," + Y(p.y).toFixed(1);
+          da += "L" + X(p.m).toFixed(1) + "," + Y(p.y).toFixed(1);
+        });
+        da += "L" + X(tyre[lastI].m) + "," + Y(0) + "Z";
+        const area = el("path", { d: da, fill: "rgba(225,6,0,.10)", opacity: 0 });
+        svg.appendChild(area);
+        const line = el("path", { d: dl, fill: "none", stroke: C.red, "stroke-width": 2.6, "stroke-linejoin": "round" });
+        svg.appendChild(line); drawIn(line, 1200, 0);
+        // final leg spans a sparse, wide bucket (n collapses to ~1.3k) — draw it dashed so the
+        // 0.427→0.721 jump reads as the discrete cliff it is, not a smoothly measured ramp
+        const cliffSeg = el("path", {
+          d: "M" + X(tyre[lastI - 1].m).toFixed(1) + "," + Y(tyre[lastI - 1].y).toFixed(1) +
+            "L" + X(tyre[lastI].m).toFixed(1) + "," + Y(tyre[lastI].y).toFixed(1),
+          fill: "none", stroke: C.red, "stroke-width": 2.6, "stroke-linejoin": "round",
+          "stroke-dasharray": "6 5", opacity: 0, style: "transition:opacity .5s ease"
+        });
+        svg.appendChild(cliffSeg);
+        // dots sized by n
+        const maxN = 92543; const dots = [];
+        tyre.forEach((p, i) => {
+          const last = i === tyre.length - 1;
+          const r = 4 + 10 * Math.sqrt(p.n / maxN);
+          const c = el("circle", {
+            cx: X(p.m), cy: Y(p.y), r: r,
+            fill: last ? C.red : C.fg, stroke: C.bg, "stroke-width": 1.5, opacity: 0
+          });
+          svg.appendChild(c); dots.push({ c, r, last, p });
+        });
+        // sample-size legend — give sighted readers the cue the aria-label already carries
+        svg.appendChild(el("circle", { cx: ml + 8, cy: 16, r: 5, fill: C.fg, opacity: .9 }));
+        svg.appendChild(txt(ml + 18, 19, "dot area = laps in bucket (n)", C.muted, 9.5, "start"));
+        // cliff marker text
+        const cliff = txt(X(60), Y(0.721) - 18, "72% — cliff", C.red, 11, "middle"); cliff.setAttribute('opacity', 0);
+        svg.appendChild(cliff);
+        const rhoChip = txt(X(35), Y(0.393) - 30, "ρ = 0.27", C.green, 13, "middle"); rhoChip.setAttribute('opacity', 0);
+        svg.appendChild(rhoChip);
+        // scrubber
+        const scrubLine = el("line", { x1: X(20), y1: mt, x2: X(20), y2: H - mb, stroke: C.green, "stroke-width": 1.4, opacity: 0 });
+        const scrubDot = el("circle", { cx: X(20), cy: Y(0.3), r: 5, fill: C.green, opacity: 0 });
+        svg.appendChild(scrubLine); svg.appendChild(scrubDot);
+
+        // snap to the nearest MEASURED bucket — never report an interpolated probability
+        // (or a borrowed sample count) as if it were observed
+        function nearestBucket(age) {
+          let best = tyre[0], bd = Infinity;
+          for (const p of tyre) { const d = Math.abs(p.m - age); if (d < bd) { bd = d; best = p; } }
+          return best;
+        }
+        const readout = document.getElementById('scrub-readout');
+        // move scrubber by tyre-age directly (the single core; pointer path wraps it)
+        function setScrubAge(age) {
+          age = Math.max(XMIN, Math.min(XMAX, age));
+          const b = nearestBucket(age);
+          scrubLine.setAttribute('x1', X(b.m)); scrubLine.setAttribute('x2', X(b.m));
+          scrubLine.setAttribute('opacity', 1);
+          scrubDot.setAttribute('cx', X(b.m)); scrubDot.setAttribute('cy', Y(b.y)); scrubDot.setAttribute('opacity', 1);
+          const cliffNote = b.m >= 50 ? ' · 72% cliff' : '';
+          readout.innerHTML = 'tyre age <b class="green">' + b.lab + ' laps</b> → measured pit rate <b class="green">' +
+            (b.y * 100).toFixed(1) + '%</b> · n=' + b.n.toLocaleString('en-US') + cliffNote;
+        }
+        function moveScrub(clientX) {
+          const rect = svg.getBoundingClientRect(); const sx = (clientX - rect.left) / rect.width * W;
+          setScrubAge(XMIN + (sx - ml) / pw * (XMAX - XMIN));
+        }
+        let dragging = false, swept = false;
+        svg.style.cursor = "ew-resize";
+        svg.addEventListener('pointerdown', e => { dragging = true; swept = true; moveScrub(e.clientX); svg.setPointerCapture(e.pointerId); });
+        svg.addEventListener('pointermove', e => { if (dragging || e.buttons === 0) moveScrub(e.clientX); });
+        svg.addEventListener('pointerup', () => dragging = false);
+        svg.addEventListener('pointerleave', () => dragging = false);
+        // one-shot auto-sweep so the payoff is seen on touch without a drag hint
+        function autoSweep() {
+          if (swept || RM) return; swept = true;
+          const t0 = performance.now(), dur = 2200;
+          function fr(now) {
+            if (dragging) return; // user took over
+            const p = Math.min(1, (now - t0) / dur);
+            // ease out to the cliff at 60 laps, then settle near 45 so the climb+cliff both read
+            const a = p < 0.8 ? lerp(2, 60, ease(p / 0.8)) : lerp(60, 45, (p - 0.8) / 0.2);
+            setScrubAge(a);
+            if (p < 1) requestAnimationFrame(fr);
+          }
+          requestAnimationFrame(fr);
+        }
+
+        if (RM) {
+          area.setAttribute('opacity', 1);
+          dots.forEach(d => d.c.setAttribute('opacity', d.last ? 1 : .9));
+          cliff.setAttribute('opacity', 1); rhoChip.setAttribute('opacity', 1);
+          cliffSeg.setAttribute('opacity', 1);
+          buildTC(); buildRho(); buildLift(); return;
+        }
+        // dots scale in timed to draw head
+        requestAnimationFrame(() => { area.style.transition = "opacity 1.2s ease"; area.setAttribute('opacity', 1); });
+        dots.forEach((d, i) => {
+          const delay = (i / (dots.length - 1)) * 1200;
+          setTimeout(() => {
+            d.c.style.transition = "opacity .35s ease"; d.c.setAttribute('opacity', d.last ? 1 : .9);
+            if (d.last) {
+              d.c.setAttribute('fill', '#fff');
+              setTimeout(() => { d.c.setAttribute('fill', C.red); }, 90);
+              cliff.style.transition = "opacity .4s ease"; cliff.setAttribute('opacity', 1);
+            }
+          }, delay);
+        });
+        setTimeout(() => { rhoChip.style.transition = "opacity .5s ease"; rhoChip.setAttribute('opacity', 1); }, 900);
+        setTimeout(() => cliffSeg.setAttribute('opacity', 1), 1150);
+        setTimeout(() => { buildTC(); buildRho(); buildLift(); }, 400);
+        setTimeout(autoSweep, 1500);
+      };
+      // engineered-feature lift — dumbbell of pit rate, lowest vs highest bucket
+      function buildLift() {
+        const svg = document.getElementById('lift-svg'); if (!svg || svg.dataset.done) return; svg.dataset.done = 1;
+        const W = 880, H = 230, ml = 200, mr = 52, mt = 22, mb = 42;
+        const XMAX = 42, pw = W - ml - mr, ph = H - mt - mb;
+        const X = v => ml + pw * v / XMAX;
+        const feats = [
+          { nm: "field_pit_share", sub: "is the field pitting now?", lo: 2.2, hi: 38.2 },
+          { nm: "tyre_life_norm", sub: "tyre age vs its limit", lo: 3.5, hi: 35.9 },
+          { nm: "neighbour just pitted", sub: "undercut / overcut", lo: 7.8, hi: 26.3 }
+        ];
+        [0, 10, 20, 30, 40].forEach(gx => {
+          svg.appendChild(el("line", { x1: X(gx), y1: mt, x2: X(gx), y2: mt + ph, stroke: C.grid }));
+          svg.appendChild(txt(X(gx), mt + ph + 18, gx + "%", C.muted, 9.5, "middle"));
+        });
+        const rowH = ph / feats.length;
+        feats.forEach((f, i) => {
+          const y = mt + rowH * (i + 0.5);
+          const nmT = txt(ml - 16, y - 2, f.nm, C.fg, 12.5, "end"); nmT.setAttribute('font-weight', '700'); svg.appendChild(nmT);
+          svg.appendChild(txt(ml - 16, y + 13, f.sub, C.muted, 9.5, "end"));
+          const conn = el("line", { x1: X(f.lo), y1: y, x2: X(f.hi), y2: y, stroke: C.muted, "stroke-width": 2, opacity: .55 });
+          svg.appendChild(conn);
+          const loD = el("circle", { cx: X(f.lo), cy: y, r: 5, fill: C.muted }); loD.classList.add('scat');
+          const hiD = el("circle", { cx: X(f.hi), cy: y, r: 6, fill: C.red }); hiD.classList.add('scat');
+          svg.appendChild(loD); svg.appendChild(hiD);
+          svg.appendChild(txt(X(f.lo) - 9, y + 4, f.lo.toFixed(1) + "%", C.muted, 10, "end"));
+          const hiL = txt(X(f.hi) + 10, y + 4, f.hi.toFixed(1) + "%", C.red, 11, "start"); hiL.setAttribute('font-weight', '700'); svg.appendChild(hiL);
+          if (RM) { loD.classList.add('shown'); hiD.classList.add('shown'); return; }
+          drawIn(conn, 650, i * 120 + 120);
+          scatIn(loD, i * 120);
+          scatIn(hiD, i * 120 + 300);
+        });
+      }
+      function buildTC() {
+        const svg = document.getElementById('tc-svg'); if (svg.dataset.done) return; svg.dataset.done = 1;
+        const W = 460, H = 170, ml = 72, mr = 44, mt = 10, mb = 14;
+        const data = [["HARD", 0.711], ["MEDIUM", 0.610], ["INTER", 0.556], ["SOFT", 0.000]];
+        const pw = W - ml - mr, rowH = (H - mt - mb) / data.length;
+        data.forEach((d, i) => {
+          const [nm, v] = d; const y = mt + rowH * i + rowH * 0.18, bh = rowH * 0.55;
+          svg.appendChild(txt(ml - 8, y + bh * 0.72, nm, C.muted, 11, "end"));
+          const w = pw * v / 0.78;
+          const r = el("rect", {
+            x: ml, y: y, width: 0, height: bh, rx: 3, fill: v === 0 ? C.muted : C.red, opacity: v === 0 ? .4 : .85,
+            style: RM ? "" : "transition:width .7s ease " + (i * .08) + "s"
+          });
+          svg.appendChild(r);
+          svg.appendChild(txt(ml + (v === 0 ? 6 : w + 6), y + bh * 0.72, v.toFixed(3), v === 0 ? C.muted : C.fg, 10, "start"));
+          if (RM) r.setAttribute('width', w);
+          else requestAnimationFrame(() => requestAnimationFrame(() => r.setAttribute('width', w)));
+        });
+      }
+      function buildRho() {
+        const svg = document.getElementById('rho-svg'); if (svg.dataset.done) return; svg.dataset.done = 1;
+        const W = 460, H = 170, ml = 92, mr = 20, mt = 10, mb = 14;
+        const data = [["TyreLife", 0.27, false], ["LapNumber", 0.27, false], ["Stint", 0.20, false],
+        ["RaceProgress", 0.19, false], ["Position", 0.02, true]];
+        const pw = W - ml - mr, rowH = (H - mt - mb) / data.length;
+        data.forEach((d, i) => {
+          const [nm, v, grey] = d; const y = mt + rowH * i + rowH * 0.2, bh = rowH * 0.5;
+          svg.appendChild(txt(ml - 8, y + bh * 0.75, nm, grey ? C.muted : C.fg, 10.5, "end"));
+          const w = pw * v / 0.30;
+          const r = el("rect", {
+            x: ml, y: y, width: 0, height: bh, rx: 3, fill: grey ? C.muted : C.red, opacity: grey ? .4 : .85,
+            style: RM ? "" : "transition:width .6s ease " + (i * .07) + "s"
+          });
+          svg.appendChild(r);
+          svg.appendChild(txt(ml + w + 6, y + bh * 0.75, grey ? "~0" : v.toFixed(2), grey ? C.muted : C.fg, 10, "start"));
+          if (grey) svg.appendChild(txt(ml + w + 34, y + bh * 0.75, "strategy, not position", C.muted, 8.5, "start"));
+          if (RM) r.setAttribute('width', w);
+          else requestAnimationFrame(() => requestAnimationFrame(() => r.setAttribute('width', w)));
+        });
+      }
+
+      /* ============================================================ */
+      /* FINAL BLEND (weight-proportioned stacked bar)                  */
+      /* ============================================================ */
+      // weights from src/build_contenders.py (WBEST); RealMLP family sums to 0.666 (2/3)
+      const blendBases = [
+        { w: 0.315, fam: "RealMLP", nm: "pseudo-RealMLP ×6", gpu: true },
+        { w: 0.293, fam: "RealMLP", nm: "diffFE-RealMLP ×6", gpu: false },
+        { w: 0.058, fam: "RealMLP", nm: "diffFE-RealMLP s42", gpu: false },
+        { w: 0.242, fam: "XGBoost", nm: "diffFE-XGB + pseudo", gpu: false },
+        { w: 0.020, fam: "XGBoost", nm: "diffFE-XGB", gpu: false },
+        { w: 0.036, fam: "CatBoost", nm: "pseudo-CatBoost", gpu: false },
+        { w: 0.035, fam: "CatBoost", nm: "diffFE-CatBoost", gpu: false }
+      ];
+      const blendFam = [{ fam: "RealMLP", total: 0.666, color: C.red },
+      { fam: "XGBoost", total: 0.262, color: C.orange }, { fam: "CatBoost", total: 0.071, color: C.muted }];
+      /* architecture pipeline: raw laps → features → 3 families (7 bases) → blend → submission */
+      // (the architecture flow and the weight bar are merged into one figure in builders.blend below)
+
+      builders.blend = function (sec) {
+        const svg = document.getElementById('pipeline-svg');
+        if (!svg || svg.dataset.done) return; svg.dataset.done = 1;
+        const reveal = [];
+        const add = (e, col, targetOp) => {
+          e.setAttribute('opacity', 0);
+          if (targetOp != null) e.setAttribute('data-top', targetOp);
+          svg.appendChild(e); reveal.push([e, col]); return e;
+        };
+        const defs = el("defs", {});
+        const mk = el("marker", { id: "pah", markerWidth: 8, markerHeight: 8, refX: 6, refY: 3, orient: "auto" });
+        mk.appendChild(el("path", { d: "M0 0 L6 3 L0 6 Z", fill: C.muted }));
+        defs.appendChild(mk); svg.appendChild(defs);
+        const cy = 100;
+        function box(x, y, w, h, title, sub, stroke, col) {
+          add(el("rect", { x: x, y: y, width: w, height: h, rx: 8, fill: C.panel, stroke: stroke || C.line, "stroke-width": stroke ? 1.8 : 1.4 }), col);
+          const t = txt(x + w / 2, y + (sub ? h / 2 - 3 : h / 2 + 4), title, C.fg, 12, "middle"); t.setAttribute('font-weight', '700'); add(t, col);
+          if (sub) add(txt(x + w / 2, y + h / 2 + 13, sub, C.muted, 9.5, "middle"), col);
+        }
+        function arrow(x1, y1, x2, y2, col) {
+          add(el("line", { x1: x1, y1: y1, x2: x2, y2: y2, stroke: C.muted, "stroke-width": 1.4, "marker-end": "url(#pah)" }), col);
+        }
+        // flow in
+        box(14, cy - 26, 106, 52, "439,140 laps", "raw · 16 cols", null, 0);
+        arrow(122, cy, 148, cy, 1);
+        box(150, cy - 26, 106, 52, "~49 features", "lean diffFE", null, 1);
+        arrow(258, cy, 284, cy, 2);
+        // weight bar = the blend stage
+        const bx = 288, bw = 388, barY = cy - 22, barH = 44;
+        // family legend — color-coded, evenly spaced above the bar (avoids label collisions on the narrow families)
+        const legItems = blendFam.map(function (f) { return { t: f.fam + " " + Math.round(f.total * 100) + "%", c: f.color }; });
+        const itemW = legItems.map(function (it) { return 20 + it.t.length * 6.6; });
+        const lgap = 22, legTot = itemW.reduce(function (a, b) { return a + b; }, 0) + lgap * (legItems.length - 1);
+        let lx = bx + (bw - legTot) / 2;
+        legItems.forEach(function (it, i) {
+          add(el("rect", { x: lx, y: barY - 30, width: 11, height: 11, rx: 2, fill: it.c }), 3);
+          const t = txt(lx + 16, barY - 21, it.t, it.c, 11, "start"); t.setAttribute('font-weight', '700'); add(t, 3);
+          lx += itemW[i] + lgap;
+        });
+        let cum = 0;
+        blendBases.forEach(function (b, i) {
+          const x0 = bx + bw * cum, w = bw * b.w;
+          const fam = blendFam.find(function (f) { return f.fam === b.fam; });
+          const sameBefore = blendBases.slice(0, i).filter(function (x) { return x.fam === b.fam; }).length;
+          const op = Math.max(.45, .95 - sameBefore * 0.22);
+          add(el("rect", { x: x0, y: barY, width: w, height: barH, fill: fam.color, stroke: C.bg, "stroke-width": 2 }), 3, op);
+          if (b.w >= 0.1) {
+            const wl = txt(x0 + w / 2, barY + barH / 2 + 4, (b.w * 100).toFixed(1) + "%", "#fff", 11, "middle");
+            wl.setAttribute('font-weight', '700'); add(wl, 3);
+          }
+          if (b.gpu) add(txt(x0 + w / 2, barY + barH + 14, "▲ GPU", C.green, 8.5, "middle"), 3);
+          cum += b.w;
+        });
+        add(txt(bx + bw / 2, barY + barH + 28, "weighted blend — 7 self-trained bases", C.muted, 9.5, "middle"), 3);
+        // flow out
+        arrow(bx + bw + 2, cy, bx + bw + 28, cy, 4);
+        box(bx + bw + 30, cy - 26, 120, 52, "1 submission", "0.95427 private", C.green, 4);
+        // reveal stage-by-stage
+        const op0 = function (e) {
+          const t = e.getAttribute('data-top');
+          if (t != null) return parseFloat(t);
+          return e.getAttribute('marker-end') ? 0.7 : 1;
+        };
+        if (RM) { reveal.forEach(function (p) { p[0].setAttribute('opacity', op0(p[0])); }); return; }
+        reveal.forEach(function (p) {
+          p[0].style.transition = "opacity .5s ease " + (p[1] * 160) + "ms";
+          requestAnimationFrame(function () { requestAnimationFrame(function () { p[0].setAttribute('opacity', op0(p[0])); }); });
+        });
+      };
+
+      /* ============================================================ */
+      /* JOURNEY                                                        */
+      /* ============================================================ */
+      const jdata = [
+        { i: 1, lab: "LightGBM baseline", lb: "0.94211", cls: "hollow", why: "49 feats, 5-fold StratifiedKFold — reference" },
+        { i: 2, lab: "feature tweaks", lb: "~0", cls: "hollow", why: "all reverted — features alone don't move this target" },
+        { i: 3, lab: "+CatBoost (ρ~0.97)", lb: "0.94833", cls: "win", why: "CB standalone 0.94774 → LGB+CB blend — first diversity move" },
+        { i: 4, lab: "stacking", lb: "-0.00005", cls: "hollow", why: "ensemble axis saturates — need new info, not better combine" },
+        { i: 5, lab: "CatBoost redesign", lb: "0.95066", cls: "win", why: "CB-tuned standalone 0.95085 — external F1 data (leak-checked), ~130 feats, +0.00233; ablation — removing the external data cost OOF on two model families" },
+        { i: 6, lab: "RealMLP PIVOT", lb: "0.95331", cls: "pivot", why: "tuned tabular neural net, +0.00241 — the single largest jump; RealMLP alone already beat every tree-led blend" },
+        { i: 7, lab: "multi-seed avg", lb: "0.95342", cls: "win", why: "seeds 42/7/99/137/313 — variance reduction" },
+        { i: 8, lab: "XGBoost max_bin 5000", lb: "0.95372", cls: "win", why: "finer histogram bins (max_bin 5000) — sharper splits on the detailed category columns" },
+        { i: 9, lab: "diffFE", lb: "0.95388", cls: "win", why: "stripping beat adding: 0.95291 > 0.95263 — last clean gain" },
+        { i: 10, lab: "pseudo-labeling", lb: "+0.00013 / -0.00003", cls: "hollow", why: "helped the neural net but not the trees — mixed, so no clear win (kept 2 variants for diversity)" },
+        { i: 11, lab: "FE-view diversity", lb: "0.95402", cls: "win", why: "2nd RealMLP feature view — best public blend" }
+      ];
+      builders.journey = function (sec) {
+        const detail = document.getElementById('jdetail');
+        // climbing line plot — each milestone sits at its score; tap a node to open its detail below
+        const svg = document.getElementById('journey-svg');
+        const W = 880, H = 250, ml = 58, mr = 70, mt = 34, mb = 46;
+        const n = climb.length;                 // 11 milestones; private flag sits at index n
+        const lo = 0.9418, hi = 0.9545;
+        const X = k => ml + (W - ml - mr) * k / n;
+        const Y = v => mt + (H - mt - mb) * (1 - (v - lo) / (hi - lo));
+        const axisY = H - mb;                    // x-axis row for the step numbers
+        // faint y gridlines + score labels
+        [0.942, 0.945, 0.948, 0.951, 0.954].forEach(gv => {
+          svg.appendChild(el("line", { x1: ml, y1: Y(gv), x2: W - mr, y2: Y(gv), stroke: C.grid }));
+          svg.appendChild(txt(ml - 8, Y(gv) + 4, gv.toFixed(3), C.muted, 10, "end"));
+        });
+        svg.appendChild(txt(X(0), axisY + 30, "baseline", C.muted, 10, "middle"));
+        svg.appendChild(txt(X(n), axisY + 30, "final", C.muted, 10, "middle"));
+        // climbing line: solid red where the LB moved up, dashed-muted where it was flat / a dead end
+        for (let k = 1; k < n; k++) {
+          const up = climb[k] > climb[k - 1];
+          svg.appendChild(el("line", {
+            x1: X(k - 1), y1: Y(climb[k - 1]), x2: X(k), y2: Y(climb[k]),
+            stroke: up ? C.red : C.muted, "stroke-width": up ? 2.6 : 1.4,
+            "stroke-dasharray": up ? "" : "4 4", opacity: up ? .9 : .4
+          }));
+        }
+        svg.appendChild(el("line", { x1: X(n - 1), y1: Y(climb[n - 1]), x2: X(n), y2: Y(PRIVATE), stroke: C.green, "stroke-width": 2.6, opacity: .9 }));
+        // persistent selection marker (filled; moves to the clicked node)
+        const selRing = el("circle", { cx: X(5), cy: Y(climb[5]), r: 14, fill: "none", stroke: C.green, "stroke-width": 2, opacity: 0, "pointer-events": "none" });
+        svg.appendChild(selRing);
+        const nodes = [];
+        for (let k = 0; k < n; k++) {
+          const d = jdata[k];
+          const piv = d.cls === 'pivot', win = d.cls === 'win';
+          const r = piv ? 9 : (win ? 6 : 5);
+          const c = el("circle", {
+            cx: X(k), cy: Y(climb[k]), r: r,
+            fill: win ? C.red : (piv ? C.green : C.bg), stroke: piv ? C.green : (win ? C.red : C.muted),
+            "stroke-width": piv ? 3 : 1.6, opacity: .9, style: "cursor:pointer"
+          });
+          c.classList.add("node");
+          svg.appendChild(c); nodes.push(c);
+          svg.appendChild(txt(X(k), axisY + 14, String(d.i), C.muted, 10, "middle"));
+          // score label only where the number actually changed (wins + the pivot + the baseline)
+          if (k === 0 || climb[k] !== climb[k - 1]) {
+            const sl = txt(X(k), Y(climb[k]) - 14, climb[k].toFixed(5), piv ? C.green : (win ? C.red : C.muted), piv ? 12 : 10, "middle");
+            if (piv) sl.setAttribute('font-weight', '700');
+            svg.appendChild(sl);
+          }
+        }
+        // pivot tag above the pivot node
+        const ptag = txt(X(5), Y(climb[5]) - 32, "RealMLP PIVOT", C.green, 10, "middle"); ptag.setAttribute('font-weight', '700');
+        svg.appendChild(ptag);
+        // private flag at the end of the line
+        const px = X(n), py = Y(PRIVATE);
+        svg.appendChild(el("path", { d: `M${px} ${py - 8} L${px + 8} ${py} L${px} ${py + 8} L${px - 8} ${py} Z`, fill: C.green }));
+        svg.appendChild(txt(px, py - 14, "0.95427", C.green, 11, "middle"));
+        svg.appendChild(txt(px, axisY + 14, "private", C.green, 9.5, "middle"));
+
+        // ---- reveal the dots (wave), pulse the active one, grow on hover — signal "these are tappable" ----
+        svg.style.userSelect = "none";
+        svg.appendChild(selRing); // raise the selection marker above the nodes so its fill reads; hit-targets sit on top
+        let cur = 5;
+        // a pulsing halo on the active dot + a bobbing hint say "this is interactive" — both retire on first use
+        let pulse = null, hint = null;
+        if (!RM) {
+          pulse = el("circle", { cx: X(5), cy: Y(climb[5]), r: 9, fill: "none", stroke: C.green, "stroke-width": 2, "pointer-events": "none" });
+          pulse.classList.add('jpulse'); svg.appendChild(pulse);
+          hint = txt(W / 2, axisY + 30, "↑ click any step", C.muted, 11, "middle");
+          hint.classList.add('jhint'); hint.setAttribute('pointer-events', 'none'); svg.appendChild(hint);
+        }
+        const retire = () => { if (pulse) { pulse.remove(); pulse = null; } if (hint) { hint.remove(); hint = null; } };
+        for (let k = 0; k < n; k++) {
+          // dots scale in left-to-right; reduced-motion shows them immediately
+          if (RM) nodes[k].classList.add('lit');
+          else setTimeout(() => nodes[k].classList.add('lit'), 260 + k * 65);
+          const hit = el("circle", { cx: X(k), cy: Y(climb[k]), r: 16, fill: "transparent", "pointer-events": "all", style: "cursor:pointer" });
+          hit.setAttribute('tabindex', '0'); hit.setAttribute('role', 'button');
+          hit.setAttribute('aria-label', jdata[k].i + ' · ' + jdata[k].lab + ' · ' + jdata[k].lb);
+          const pick = () => { retire(); selectStep(k); };
+          hit.addEventListener('click', pick);
+          hit.addEventListener('focus', pick);
+          hit.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+          hit.addEventListener('pointerenter', () => { if (k !== cur) { nodes[k].style.transform = 'scale(1.4)'; nodes[k].setAttribute('opacity', 1); } });
+          hit.addEventListener('pointerleave', () => { if (k !== cur) { nodes[k].style.transform = ''; nodes[k].setAttribute('opacity', .5); } });
+          svg.appendChild(hit);
+        }
+
+        let vigDone = false;
+        function flashVignette() {
+          if (vigDone || RM) return; vigDone = true;
+          const v = document.getElementById('vignette'); if (!v) return;
+          v.classList.add('on'); setTimeout(() => v.classList.remove('on'), 520);
+        }
+        function selectStep(k) {
+          const d = jdata[k];
+          const piv = d.cls === 'pivot', win = d.cls === 'win';
+          const col = win ? C.red : (piv ? C.green : C.muted);
+          const r = piv ? 9 : (win ? 6 : 5);
+          nodes.forEach((node, j) => { node.setAttribute('opacity', j === k ? 1 : .5); node.style.transform = ''; });
+          selRing.setAttribute('cx', X(k)); selRing.setAttribute('cy', Y(climb[k])); selRing.setAttribute('r', r + 2);
+          selRing.setAttribute('fill', col); selRing.setAttribute('stroke', C.bg);
+          selRing.setAttribute('stroke-width', 1.5); selRing.setAttribute('opacity', 1);
+          cur = k;
+          if (pulse) { pulse.setAttribute('cx', X(k)); pulse.setAttribute('cy', Y(climb[k])); pulse.setAttribute('stroke', col); pulse.setAttribute('r', r); }
+          detail.className = 'jdetail ' + d.cls;
+          detail.innerHTML = '<span class="d-idx">' + d.i + '</span>' +
+            '<div class="d-body"><div class="d-top"><span class="d-lab">' + d.lab + '</span>' +
+            '<span class="d-lb">' + d.lb + '</span></div>' +
+            '<div class="d-why">' + d.why + '</div></div>';
+          if (piv) flashVignette();
+        }
+        // default to the RealMLP pivot — the story's turning point
+        selectStep(5);
+      };
+
+      /* mini-strip progress dot — element handles cached once at build time */
+      let miniDot = null, miniSvg = null, miniVal = null;
+      function updateMini(prog) {
+        if (!miniSvg) return;
+        if (!miniDot) { miniDot = el("circle", { r: 3.5, fill: C.green }); miniSvg.appendChild(miniDot); }
+        const ml = 6, mr = 6, W = 760; const x = ml + (W - ml - mr) * prog;
+        // approximate y from climb interpolation
+        const seg = prog * climb.length; const i = Math.min(climb.length - 1, Math.floor(seg));
+        const v = i < climb.length - 1 ? lerp(climb[i], climb[i + 1], seg - i) : PRIVATE;
+        const Y = v2 => 6 + (32 - 12) * (1 - (v2 - YMIN) / (YMAX - YMIN));
+        miniDot.setAttribute('cx', x); miniDot.setAttribute('cy', Y(v));
+        miniVal.textContent = v.toFixed(5);
+      }
+
+
+      /* ============================================================ */
+      /* PATTERNS — scale contrast: my 7 vs the field's 186–218        */
+      /* ============================================================ */
+      builders.patterns = function (sec) {
+        const svg = document.getElementById('patterns-svg'); if (!svg || svg.dataset.done) return; svg.dataset.done = 1;
+        const x0 = 224, x1 = 706;
+        const famCol = { RealMLP: C.red, XGBoost: C.orange, CatBoost: C.muted };
+        function laneLabel(y, big, sub) {
+          const t = txt(20, y, big, C.fg, 13, "start"); t.setAttribute('font-weight', '700'); svg.appendChild(t);
+          svg.appendChild(txt(20, y + 16, sub, C.muted, 10.5, "start"));
+        }
+        laneLabel(58, "MY BLEND", "7 models · ~3h each to train");
+        laneLabel(150, "TOP OF THE BOARD", "186–218 models · stacked");
+        svg.appendChild(el("line", { x1: x0, y1: 92, x2: x1, y2: 92, stroke: C.line, "stroke-width": 1 }));
+        svg.appendChild(el("line", { x1: x0, y1: 188, x2: x1, y2: 188, stroke: C.line, "stroke-width": 1 }));
+        // my 7 dots, sized by blend weight (RealMLP family two-thirds)
+        const ours = [["RealMLP", 10], ["RealMLP", 9], ["RealMLP", 6], ["XGBoost", 9], ["XGBoost", 5], ["CatBoost", 6], ["CatBoost", 5]];
+        const stepU = (x1 - x0) / (ours.length - 1);
+        ours.forEach((d, i) => {
+          svg.appendChild(el("circle", { cx: x0 + i * stepU, cy: 70, r: d[1], fill: famCol[d[0]], opacity: .92, stroke: C.bg, "stroke-width": 1.5 }));
+        });
+        // the field's swarm — deterministic grid, ~200 dots
+        const cols = 42, rows = 5, sx = (x1 - x0) / (cols - 1);
+        let n = 0;
+        for (let r = 0; r < rows; r++) {
+          const off = (r % 2) ? sx / 2 : 0, ncol = (r % 2) ? cols - 1 : cols;
+          for (let c = 0; c < ncol; c++) {
+            let fill = C.muted, op = .5;
+            if (n % 17 === 0) { fill = C.red; op = .85; } else if (n % 23 === 0) { fill = C.orange; op = .8; }
+            svg.appendChild(el("circle", { cx: x0 + off + c * sx, cy: 130 + r * 12, r: 2.6, fill, opacity: op }));
+            n++;
+          }
+        }
+        // right-edge verdict
+        const vx = 748;
+        const a = txt(vx, 64, "27–31×", C.red, 21, "start"); a.setAttribute('font-weight', '700'); svg.appendChild(a);
+        svg.appendChild(txt(vx, 82, "fewer models", C.muted, 10.5, "start"));
+        svg.appendChild(txt(vx, 95, "than the board", C.muted, 9, "start"));
+        const b = txt(vx, 150, "+0.0008", C.fg, 18, "start"); b.setAttribute('font-weight', '700'); svg.appendChild(b);
+        svg.appendChild(txt(vx, 168, "AUC · same band", C.muted, 10.5, "start"));
+      };
+
+      /* ============================================================ */
+      /* PART IV.2 — finals only (the OOF→LB transfer scatter was cut) */
+      /* ============================================================ */
+      builders.transfer = function (sec) { builders.final(sec); };
+
+      /* ============================================================ */
+      /* FINAL SELECTION                                                */
+      /* ============================================================ */
+      // two finalists across offline / public / private — grouped bars, one panel
+      const finalists = [
+        { nm: "Constrained blend", note: "shipped", color: C.green, rejected: false, oof: 0.95462, pub: 0.95402, prv: 0.95427 },
+        { nm: "Greedy blend", note: "rejected", color: C.muted, rejected: true, oof: 0.95479, pub: 0.95380, prv: 0.95408 }
+      ];
+      builders.final = function (sec) {
+        const svg = document.getElementById('finalists-svg'); if (!svg || svg.dataset.done) return; svg.dataset.done = 1;
+        const W = 880, H = 360, ml = 64, mr = 28, mt = 70, mb = 46;
+        const pw = W - ml - mr, ph = H - mt - mb, TMIN = 0.9530, TMAX = 0.9550;
+        const Y = v => mt + ph * (1 - (v - TMIN) / (TMAX - TMIN));
+        const metrics = [{ k: "oof", lab: "offline (OOF)" }, { k: "pub", lab: "public LB" }, { k: "prv", lab: "private LB" }];
+        const groupW = pw / metrics.length, barW = groupW * 0.26, gap = barW * 0.22, total = finalists.length;
+        // y grid
+        [0.9535, 0.9540, 0.9545].forEach(gy => {
+          svg.appendChild(el("line", { x1: ml, y1: Y(gy), x2: W - mr, y2: Y(gy), stroke: C.grid }));
+          svg.appendChild(txt(ml - 8, Y(gy) + 4, gy.toFixed(4), C.muted, 9.5, "end"));
+        });
+        svg.appendChild(el("line", { x1: ml, y1: Y(TMIN), x2: W - mr, y2: Y(TMIN), stroke: C.line }));
+        // legend
+        finalists.forEach((f, i) => {
+          const lx = ml + i * 250;
+          svg.appendChild(el("rect", { x: lx, y: 20, width: 12, height: 12, rx: 2, fill: f.color, opacity: f.rejected ? .6 : .95 }));
+          svg.appendChild(txt(lx + 18, 30, f.nm + " · " + f.note, C.muted, 11, "start"));
+        });
+        const bars = [];
+        metrics.forEach((m, gi) => {
+          const gc = ml + groupW * (gi + 0.5);
+          svg.appendChild(txt(gc, mt + ph + 20, m.lab, C.muted, 11, "middle"));
+          finalists.forEach((f, fi) => {
+            const v = f[m.k], cx = gc + (fi - (total - 1) / 2) * (barW + gap), x = cx - barW / 2;
+            const h = ph * (v - TMIN) / (TMAX - TMIN), y = mt + ph - h;
+            const rect = el("rect", { x: x, y: mt + ph, width: barW, height: 0, rx: 2.5, fill: f.color, opacity: f.rejected ? .55 : .92 });
+            svg.appendChild(rect);
+            const vl = txt(cx, y - 5, v.toFixed(5), f.color, 8.5, "middle"); vl.setAttribute('opacity', 0);
+            svg.appendChild(vl);
+            bars.push({ rect, vl, y, h, cx, gi, fi });
+          });
+        });
+        svg.appendChild(txt(ml, mt + ph + 36, "bars use a zoomed 0.9530–0.9550 axis (not from zero) — gaps look larger than they are", C.muted, 8.5, "start"));
+        // callouts: greedy tops offline (gi0,fi1); the blend wins private (gi2,fi0)
+        const gB = bars.find(b => b.gi === 0 && b.fi === 1), pB = bars.find(b => b.gi === 2 && b.fi === 0);
+        const ca1 = txt(gB.cx + 6, gB.y - 20, "top offline", C.muted, 9.5, "middle"); ca1.setAttribute('font-weight', '700'); ca1.setAttribute('opacity', 0);
+        const ca2 = txt(pB.cx - 2, pB.y - 20, "wins the board", C.green, 9.5, "middle"); ca2.setAttribute('font-weight', '700'); ca2.setAttribute('opacity', 0);
+        svg.appendChild(ca1); svg.appendChild(ca2);
+        const reveal = () => {
+          bars.forEach((b, i) => {
+            if (RM) { b.rect.setAttribute('y', b.y); b.rect.setAttribute('height', b.h); b.vl.setAttribute('opacity', 1); return; }
+            setTimeout(() => {
+              b.rect.style.transition = "y .6s cubic-bezier(.22,.61,.36,1), height .6s cubic-bezier(.22,.61,.36,1)";
+              b.rect.setAttribute('y', b.y); b.rect.setAttribute('height', b.h);
+              b.vl.style.transition = "opacity .4s"; setTimeout(() => b.vl.setAttribute('opacity', 1), 350);
+            }, i * 60);
+          });
+          const showCallouts = () => {
+            [ca1, ca2].forEach(e => {
+              if (RM) { e.setAttribute('opacity', 1); return; }
+              e.style.transition = "opacity .6s ease"; e.setAttribute('opacity', 1);
+            });
+          };
+          if (RM) showCallouts(); else setTimeout(showCallouts, bars.length * 60 + 300);
+        };
+        if (RM) reveal(); else setTimeout(reveal, 250);
+      };
+
+      /* ============================================================ */
+      /* DEDUP FOOTNOTE — leaderboard score-density (the 260 bloc)      */
+      /* ============================================================ */
+      // real public-LB score density (kaggle leaderboard, 2026-06): one bar per 0.0001 AUC bin,
+      // height = teams in that bin. The 0.95455 bin is the 260-team identical-score bloc.
+      const lbHist = [[0.94755, 19], [0.94765, 18], [0.94775, 27], [0.94785, 30], [0.94795, 29], [0.94805, 23], [0.94815, 22], [0.94825, 29], [0.94835, 21], [0.94845, 27], [0.94855, 38], [0.94865, 37], [0.94875, 24], [0.94885, 19], [0.94895, 26], [0.94905, 24], [0.94915, 22], [0.94925, 26], [0.94935, 28], [0.94945, 27], [0.94955, 25], [0.94965, 28], [0.94975, 15], [0.94985, 27], [0.94995, 21], [0.95005, 13], [0.95015, 17], [0.95025, 44], [0.95035, 23], [0.95045, 16], [0.95055, 19], [0.95065, 21], [0.95075, 18], [0.95085, 19], [0.95095, 10], [0.95105, 12], [0.95115, 9], [0.95125, 6], [0.95135, 13], [0.95145, 15], [0.95155, 13], [0.95165, 9], [0.95175, 12], [0.95185, 8], [0.95195, 3], [0.95205, 4], [0.95215, 1], [0.95225, 7], [0.95235, 5], [0.95245, 10], [0.95255, 10], [0.95265, 5], [0.95275, 6], [0.95285, 6], [0.95295, 3], [0.95305, 7], [0.95315, 5], [0.95325, 4], [0.95335, 9], [0.95345, 7], [0.95355, 19], [0.95365, 13], [0.95375, 4], [0.95385, 15], [0.95395, 18], [0.95405, 41], [0.95415, 46], [0.95425, 15], [0.95435, 32], [0.95445, 23], [0.95455, 366], [0.95465, 6], [0.95475, 3], [0.95485, 4], [0.95495, 2]];
+      const lbUs = 0.95402, lbLeader = 0.95503, lbMed = 0.94797, lbSpike = 0.95455;
+      builders['dedup-note'] = function (sec) {
+        const svg = document.getElementById('dedup-svg'); if (!svg || svg.dataset.done) return; svg.dataset.done = 1;
+        const W = 880, H = 168, ml = 40, mr = 20, mt = 46, mb = 28, pw = W - ml - mr, ph = H - mt - mb, base = mt + ph, CMAX = 385, barW = 9;
+        const X = s => ml + pw * (s - 0.9473) / (0.9553 - 0.9473), Y = c => mt + ph * (1 - c / CMAX);
+        // x grid + labels
+        [0.9480, 0.9500, 0.9520, 0.9540].forEach(gx => {
+          svg.appendChild(el("line", { x1: X(gx), y1: mt, x2: X(gx), y2: base, stroke: C.grid }));
+          svg.appendChild(txt(X(gx), H - 9, gx.toFixed(4), C.muted, 9.5, "middle"));
+        });
+        svg.appendChild(el("line", { x1: ml, y1: base, x2: W - mr, y2: base, stroke: C.line }));
+        svg.appendChild(txt(ml - 6, mt + 2, "teams", C.muted, 9, "end"));
+        // bars (real density, median → leader)
+        const bars = lbHist.map(d => {
+          const big = d[0] === lbSpike;
+          const r = el("rect", {
+            x: X(d[0]) - barW / 2, y: base, width: barW, height: 0, rx: 1,
+            fill: big ? C.red : C.muted, opacity: big ? 1 : .5
+          });
+          svg.appendChild(r); return { r, c: d[1], big, h: base - Y(d[1]) };
+        });
+        // markers: top 50% · me · Leader, plus the spike callout (faded in later)
+        function mk(x, col, dash, lab, lx, ly, anc, sz) {
+          const t = el("line", { x1: x, y1: mt + 6, x2: x, y2: base, stroke: col, "stroke-width": dash ? 1 : 1.4, opacity: 0 });
+          if (dash) t.setAttribute("stroke-dasharray", "3 3");
+          const L = txt(lx, ly, lab, col, sz || 10, anc); L.setAttribute('opacity', 0);
+          svg.appendChild(t); svg.appendChild(L); return [t, L];
+        }
+        const med = mk(X(lbMed), C.muted, true, "top 50%", X(lbMed), mt - 6, "middle", 9.5);
+        const us = mk(X(lbUs), C.green, false, "me 0.95402", X(lbUs) - 4, mt + 12, "end", 10);
+        const ld = mk(X(lbLeader), C.muted, true, "Leader 0.95503", X(lbLeader) + 2, mt + 12, "end", 9.5);
+        const spikeLab = txt(X(lbSpike), Y(366) - 8, "260 teams · one identical score", C.red, 10, "middle");
+        spikeLab.setAttribute('opacity', 0); spikeLab.setAttribute('font-weight', '700'); svg.appendChild(spikeLab);
+        const marks = [...med, ...us, ...ld, spikeLab];
+        if (RM) {
+          bars.forEach(b => { b.r.setAttribute('y', Y(b.c)); b.r.setAttribute('height', b.h); });
+          marks.forEach(e => e.setAttribute('opacity', 1)); return;
+        }
+        bars.forEach((b, i) => {
+          b.r.style.transition = "y .5s cubic-bezier(.22,.61,.36,1) " + (i * 9) + "ms, height .5s cubic-bezier(.22,.61,.36,1) " + (i * 9) + "ms";
+          requestAnimationFrame(() => requestAnimationFrame(() => { b.r.setAttribute('y', Y(b.c)); b.r.setAttribute('height', b.h); }));
+        });
+        setTimeout(() => { marks.forEach(e => { e.style.transition = "opacity .5s ease"; e.setAttribute('opacity', 1); }); }, bars.length * 9 + 350);
+      };
+
+      /* ============================================================ */
+      /* PLAIN-LANGUAGE GLOSSARY — on-demand tooltips for non-experts   */
+      /* ============================================================ */
+      const GLOSSARY = {
+        auc: "ROC-AUC: a 0.5-to-1.0 score for how well the model RANKS likely-to-pit laps above unlikely ones. 0.5 = coin flip, 1.0 = perfect. It is not percent-correct — which is the whole point of the noise section.",
+        baseline: "The quick, standard first model you build as a 'before' photo — every later improvement is measured against it.",
+        noise: "The contest's answers are partly scrambled on purpose (the data is computer-generated), so about a third are essentially random. That puts a hard cap on how high ANY model can score.",
+        oof: "Out-of-fold / cross-validation: an honest self-graded score — hide part of the training data, train on the rest, score the held-out part, rotate 5 times, so the model is only graded on rows it never saw.",
+        lb: "Public vs private leaderboard: during the contest you see a score on part of the hidden test data (public); the real ranking uses the rest (private), revealed only at the end.",
+        transfer: "A formula fit from my own past submissions that turns a practice (OOF) score into a predicted real-leaderboard score. Slope below 1 means every practice gain shrinks for real — so chasing more practice score pays less and less.",
+        greedy: "A blend tuned to chase the highest practice score. 'Overfit' means it memorised quirks instead of the real pattern, so it does worse on new data. I submitted it but deliberately did NOT lock it as a final pick.",
+        realmlp: "RealMLP is a multi-layer perceptron — a plain feed-forward neural network — wrapped in a modern recipe tuned specifically for tabular data: careful preprocessing, a learned scale on every input, and embeddings that hand each driver its own learned vector. Gradient-boosted trees (XGBoost / CatBoost / LightGBM), the usual Kaggle default, instead carve the data into rule-based yes/no splits. That difference decided it here: RealMLP read driver style better than tree target-encoding, so it beat every tree — the first time a neural net won on this problem, and it earned two-thirds of the final blend.",
+        stack: "Stacking with a logit blend: rather than a plain average, each model's prediction is turned into a logit and fed to one small logistic-regression that learns the best weighting. 'Hill-climbing' is the greedy cousin — add models one at a time as long as the score improves. Every strong solution finished this way; mine used a constrained version of the same idea.",
+        coorddesc: "Coordinate descent: the routine that sets the blend weights — it nudges one model's weight at a time and keeps the change only if the honest out-of-fold score goes up. Simple, and hard to overfit, which is the point.",
+        blend: "Ensemble / blend: run several models and combine their answers — like polling experts for a consensus — so individual mistakes cancel and the result is steadier. Here it is a weighted average with constrained, regularised weights (not a free-for-all), which is what kept it from overfitting.",
+        lift: "+0.0122 looks microscopic, but near the top of this contest everyone is bunched into a band only ~0.0006 wide, so it is a large, hard-won gain.",
+        difffe: "My nickname for the experiment that REMOVED the fanciest hand-built features — and the models got better. A 'less is more' result, because those features were overfitting.",
+        pseudo: "Pseudo-labeling: let the model label the test rows it is most confident about, then train on them too. Here it gave no score gain but added useful variety to the blend.",
+        rho: "The Greek letter rho is a correlation — how strongly one clue moves with the answer. 0.27 is weak-but-the-best-available: even the strongest single clue is faint because the data is mostly noise.",
+        synthetic: "The dataset was computer-generated from real F1 telemetry, not recorded races; the 2023 part came out broken (~1.0% pit rate), a trap that misleads a model if treated as real.",
+        feature: "A 'feature' is one input the model looks at (tyre age, lap number); 'feature engineering' is inventing smarter new inputs from the raw data — most of the manual craft here.",
+        compute: "All training ran on a personal M1 Pro laptop plus a free shared GPU — competitive work on a near-zero budget, no rented cloud.",
+        gbdt: "Gradient-boosted decision trees (XGBoost, CatBoost, LightGBM): the standard Kaggle workhorse for tabular data — it builds many small yes/no decision trees in sequence, each one correcting the last's mistakes. Here they filled the gaps around the neural net rather than leading.",
+        targetenc: "Target encoding: instead of feeding a model a raw category like a driver's name, you replace it with a number summarising how often that category's rows pit. It's how trees digest high-cardinality categories — and what RealMLP's learned embeddings beat here.",
+        gnn: "Graph neural network: a model that treats the data as a web of connected nodes rather than a flat table. One top solution tossed a single GNN into its diversity pool, but they're heavyweight and rarely necessary on tabular data like this.",
+        leak: "Data leakage: when a clue that secretly encodes the answer slips into the inputs — it inflates practice scores, then collapses on real data. 'Leak-checked / leak-free' means I verified the extra data and the validation split didn't smuggle the answer in."
+      };
+      function setupGlossary() {
+        const tip = document.getElementById('tip');
+        function show(e, key) {
+          const t = GLOSSARY[key]; if (!t) return;
+          tip.textContent = t; tip.classList.add('wide');
+          const w = 300, x = Math.max(8, Math.min(e.clientX + 14, window.innerWidth - w - 10));
+          tip.style.left = x + 'px'; tip.style.top = (e.clientY + 16) + 'px'; tip.style.opacity = 1;
+        }
+        function hide() { tip.style.opacity = 0; tip.classList.remove('wide'); }
+        document.querySelectorAll('.gl').forEach(elm => {
+          const key = elm.dataset.gl;
+          elm.addEventListener('pointerenter', e => show(e, key));
+          elm.addEventListener('pointermove', e => { if (e.pointerType !== 'touch') show(e, key); });
+          elm.addEventListener('pointerleave', hide);
+          elm.addEventListener('click', e => {
+            e.stopPropagation(); show(e, key);
+            setTimeout(hide, 4200);
+          });  // tap-to-reveal on touch, auto-dismiss
+        });
+        document.addEventListener('click', hide);
+      }
+
+      /* ============================================================ */
+      /* WIRE UP                                                        */
+      /* ============================================================ */
+      function init() {
+        // observe every section that has a builder
+        ['hero', 'data', 'tyre', 'blend', 'journey', 'patterns', 'transfer', 'dedup-note']
+          .forEach(id => { const s = document.getElementById(id); if (s) io.observe(s); });
+        // footer pills reveal
+        const footer = document.getElementById('footer');
+        if (footer) io.observe(footer);
+        // build the sticky mini strip line (static)
+        buildMini();
+        // wire the plain-language glossary tooltips
+        setupGlossary();
+
+        // ONE coalesced, rAF-gated scroll dispatcher: read all layout, then all writes.
+        const hero = document.getElementById('hero');
+        const strip = document.getElementById('ministrip');
+        const telemetry = document.getElementById('telemetry');
+        // cache docH (reading scrollHeight per scroll event forces reflow); refresh on resize
+        let docH = document.documentElement.scrollHeight - window.innerHeight;
+        let ticking = false;
+        function frame() {
+          ticking = false;
+          // --- READS ---
+          const vh = window.innerHeight;
+          const heroBottom = hero.getBoundingClientRect().bottom;
+          const sy = window.scrollY;
+          // --- WRITES ---
+          if (heroBottom < 10) strip.classList.add('show'); else strip.classList.remove('show');
+          if (!RM && telemetry) { telemetry.style.transform = 'translateY(' + (sy * 0.03) + 'px)'; }
+          // mini-strip dot tracks overall page-scroll progress (monotonic — never jumps back)
+          updateMini(docH > 0 ? Math.max(0, Math.min(1, sy / docH)) : 0);
+        }
+        function onScroll() { if (!ticking) { ticking = true; requestAnimationFrame(frame); } }
+        window.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('resize', () => { docH = document.documentElement.scrollHeight - window.innerHeight; }, { passive: true });
+        frame();
+      }
+      if (document.readyState !== 'loading') init();
+      else document.addEventListener('DOMContentLoaded', init);
+    })();
+  </script>
+</body>
+
+</html>
